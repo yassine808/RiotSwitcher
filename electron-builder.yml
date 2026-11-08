@@ -53,6 +53,10 @@ portable:
   unpackDirName: true
 
 nsis:
+  # No spaces: latest.yml is generated with a dash-normalised URL, and GitHub
+  # rewrites spaces in uploaded asset names to dots. The two never matched, so
+  # every update download from a CI-published release returned 404.
+  artifactName: "${productName}-Setup-${version}.${ext}"
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true

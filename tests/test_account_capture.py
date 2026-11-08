@@ -239,6 +239,57 @@ class DetectorWiringTests(_TempDirMixin):
         self.assertEqual(["Fresh#NA1"], created)
 
 
+class DetectorLogoutTests(_TempDirMixin):
+    """Add Account must really sign the client out before relaunching it."""
+
+    def _detector(self, **kwargs):
+        return AccountDetector(profiles=self._pm(), on_event=kwargs.pop("on_event", None), **kwargs)
+
+    def test_clears_both_live_login_locations(self):
+        local = os.path.join(self.root, "local")
+        data_dir = os.path.join(local, "Riot Games", "Riot Client", "Data")
+        os.makedirs(os.path.join(data_dir, "Sessions"), exist_ok=True)
+        settings = os.path.join(data_dir, "RiotGamesPrivateSettings.yaml")
+        with open(settings, "w", encoding="utf-8") as fh:
+            fh.write('id_token: "x.y.z"\n')
+        with open(os.path.join(data_dir, "Sessions", "session"), "w", encoding="utf-8") as fh:
+            fh.write("data")
+
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": local}):
+            self._detector()._clear_riot_saved_credentials()
+
+        self.assertFalse(os.path.isfile(settings))
+        self.assertFalse(os.path.isdir(os.path.join(data_dir, "Sessions")))
+
+    def test_uses_the_shared_session_clearer_when_injected(self):
+        cleared = []
+        detector = self._detector(clear_login=lambda: cleared.append(True))
+
+        detector._clear_riot_saved_credentials()
+
+        self.assertEqual([True], cleared)
+
+    @mock.patch("account_detector.rad")
+    def test_already_added_relaunches_once_then_stops(self, mock_rad):
+        mock_rad.display_uid.return_value = "Known#EUW"
+        events = []
+        detector = self._detector(on_event=lambda _name, data: events.append(data))
+        detector.launcher = mock.MagicMock(return_value=1234)
+        detector.killer = mock.MagicMock()
+        detector.clear_login = mock.MagicMock()
+
+        first = detector._handle_already_added("Known#EUW")
+        second = detector._handle_already_added("Known#EUW")
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        detector.killer.assert_called_once()
+        detector.clear_login.assert_called_once()
+        detector.launcher.assert_called_once()
+        self.assertEqual("error", events[-1]["status"])
+        self.assertIn("already added", events[-1]["message"])
+
+
 class UniqueNameTests(_TempDirMixin):
     def test_appends_a_suffix_when_the_name_is_taken(self):
         pm = self._pm()

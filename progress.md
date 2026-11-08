@@ -1598,3 +1598,37 @@
   `get_profiles`) returns `count=3` with those names; no dummy profile
   directories exist. RiotSwitcher was relaunched from the fixed portable.
 - Next: none.
+
+### 2026-11-08 — X button, Add Account loop, auto-update assets
+
+- Goal: fix the three reported bugs, test them, rebuild the portable, push.
+- Done:
+  - X button: `win.on("close")` only called `preventDefault()`, so the window
+    never left the screen; it now hides to the tray and the process stays alive.
+    The close/minimize listeners are attached before the `get_config` read,
+    because an X pressed while the backend booted used to quit the app.
+  - Tray settings apply live: `AppWindow.updateTrayBehavior` mirrors successful
+    `set_config` / `set_config_many` writes in `src/main/index.ts`.
+  - Add Account loop: only `RiotGamesPrivateSettings.yaml` was cleared, so
+    `Data/Sessions` re-signed into the saved account and the client was killed
+    and relaunched forever. The detector now clears both through an injected
+    `clear_login` and caps the "already added" relaunch at one before erroring.
+  - Auto-update: `latest.yml` pointed at `RiotSwitcher-Setup-3.1.5.exe` while the
+    release asset was published as `RiotSwitcher.Setup.3.1.5.exe` (404).
+    `electron-builder.yml` pins `nsis.artifactName` to the dashed name, and the
+    release workflow verifies every `latest.yml` URL exists in `release/`.
+  - Updates install themselves: the "Restart Now / Later" dialog is gone.
+    `update-downloaded` waits 3 s so the UI can paint, then calls a silent
+    `quitAndInstall(true, true)`, which restarts the app on the new build.
+- Verified: typecheck clean; vitest 18 files / 93 tests; pytest 185 passed; ruff
+  and eslint clean; NSIS and portable rebuilt; WM_CLOSE smoke test on
+  `release/win-unpacked/RiotSwitcher.exe` left the process alive with
+  `IsWindowVisible` false, both after the config load and when clicked early.
+- Verified the updater end to end against a local feed serving a fake 3.1.6:
+  `Found version 3.1.6` -> downloaded and hash-verified -> `isSilent: true`
+  install 3 s later with no click -> app relaunched from the installed folder.
+  The run replaced the per-user install in
+  `%LOCALAPPDATA%\Programs\RiotSwitcher` with this build; feed and pending
+  payloads were removed afterwards.
+- Next: publish a release with the dashed asset name so installed 3.1.5 and
+  older builds can download the update.

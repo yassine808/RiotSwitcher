@@ -117,12 +117,49 @@ describe("app window close-to-tray", () => {
   it("hides to the tray instead of closing when CloseToTray is on", async () => {
     const onCloseToTray = vi.fn();
     const { win } = await createAppWindow(fakePython() as never, { onCloseToTray });
+    win.show();
     const event = closeEvent();
 
     win.emit("close", event);
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(win.isVisible()).toBe(false);
     expect(onCloseToTray).toHaveBeenCalledWith("close");
+  });
+
+  it("hides to the tray if the X is pressed before the tray config loads", async () => {
+    let finishConfig!: (value: unknown) => void;
+    const configPromise = new Promise((resolve) => {
+      finishConfig = resolve;
+    });
+    const python = { call: vi.fn(() => configPromise) };
+    const onCloseToTray = vi.fn();
+    const created = createAppWindow(python as never, { onCloseToTray });
+    const win = FakeWindow.instances[0]!;
+    win.show();
+    const event = closeEvent();
+
+    win.emit("close", event);
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(win.isVisible()).toBe(false);
+    expect(onCloseToTray).toHaveBeenCalledWith("close");
+
+    finishConfig({ CloseToTray: true, MinimizeToTray: false });
+    await created;
+  });
+
+  it("applies a changed CloseToTray setting without a restart", async () => {
+    const { win, updateTrayBehavior } = await createAppWindow(fakePython() as never, {
+      onCloseToTray: vi.fn(),
+    });
+    updateTrayBehavior("CloseToTray", false);
+    const event = closeEvent();
+
+    win.emit("close", event);
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(win.isVisible()).toBe(true);
   });
 
   it("lets the window close when CloseToTray is off", async () => {

@@ -9,6 +9,8 @@ The detector owns its own polling thread; start_detection() returns immediately
 and stop_detection() joins the thread.
 """
 
+import os
+import shutil
 import sys
 import threading
 import time
@@ -19,6 +21,11 @@ POLL_INTERVAL_S = 1.5
 RELAUNCH_WAIT_S = 8  # wait for Riot Client to fully restart after kill
 DETECTION_TIMEOUT_S = 300  # give up after 5 minutes of no new login
 MAX_NAME_ATTEMPTS = 10000
+# A live login that is already saved cannot be added twice. Restart the client
+# once so the user can enter a different account, but never loop forever: a
+# client that auto-signs back into the same account would otherwise be killed
+# and reopened every few seconds with no way out.
+MAX_ALREADY_ADDED_RELAUNCHES = 1
 
 
 def unique_profile_name(profiles, base, start_index=1):
@@ -48,11 +55,15 @@ def unique_profile_name(profiles, base, start_index=1):
 
 
 class AccountDetector:
-    def __init__(self, profiles, on_event=None, launcher=None, on_profile_created=None, killer=None):
+    def __init__(
+        self, profiles, on_event=None, launcher=None, on_profile_created=None,
+        killer=None, clear_login=None,
+    ):
         self.profiles = profiles
         self.on_event = on_event
         self.launcher = launcher
         self.killer = killer  # called before launcher() to ensure fresh client
+        self.clear_login = clear_login  # signs the live client out before launch
         self._on_profile_created = on_profile_created
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -61,6 +72,7 @@ class AccountDetector:
         self._pending_account = None
         self._confirm_event = threading.Event()
         self._auto_save = False
+        self._already_added_counts = {}
 
     def _emit(self, name, data):
         if self.on_event:
@@ -91,6 +103,7 @@ class AccountDetector:
             if self._thread and self._thread.is_alive():
                 return False
             self._auto_save = auto_save
+            self._already_added_counts = {}
             self._stop.clear()
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
@@ -137,20 +150,64 @@ class AccountDetector:
         return True
 
     def _clear_riot_saved_credentials(self):
-        """Delete Riot Client saved credentials to force a fresh login screen."""
-        import os
-        settings_path = os.path.join(
-            os.environ.get("LOCALAPPDATA", ""),
-            "Riot Games", "Riot Client", "Data", "RiotGamesPrivateSettings.yaml",
-        )
-        if os.path.isfile(settings_path):
+        """Sign the live Riot Client out before the next launch.
+
+        Removing only ``RiotGamesPrivateSettings.yaml`` is not enough: the
+        client also keeps its refresh state in ``Data/Sessions`` and will
+        silently sign the same account back in. The detector then sees an
+        account that is already saved, kills the client, relaunches it, sees it
+        again — the "keeps reopening an empty client" loop.
+
+        ``clear_login`` is the shared ``SessionManager.clear_live_session``
+        path, so the two login locations stay in one place. The direct
+        fallback keeps the detector usable on its own (tests, future callers).
+        """
+        if self.clear_login:
             try:
-                os.remove(settings_path)
-            except OSError:
+                self.clear_login()
+                return
+            except Exception:  # noqa: BLE001
                 pass
 
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        if not local_app_data:
+            return
+        data_dir = os.path.join(
+            local_app_data,
+            "Riot Games", "Riot Client", "Data",
+        )
+        private_settings = os.path.join(data_dir, "RiotGamesPrivateSettings.yaml")
+        sessions_dir = os.path.join(data_dir, "Sessions")
+        try:
+            if os.path.isfile(private_settings):
+                os.remove(private_settings)
+        except OSError:
+            pass
+        try:
+            if os.path.isdir(sessions_dir):
+                shutil.rmtree(sessions_dir, ignore_errors=True)
+        except OSError:
+            pass
+
     def _handle_already_added(self, display):
-        """Re-launch client with cleared credentials when a known account is detected."""
+        """Re-launch client with cleared credentials when a known account is detected.
+
+        Returns False after the retry budget is exhausted so the polling loop
+        can stop instead of reopening the client forever.
+        """
+        attempts = self._already_added_counts.get(display, 0)
+        self._already_added_counts[display] = attempts + 1
+        if attempts >= MAX_ALREADY_ADDED_RELAUNCHES:
+            self._emit("account_detection_progress", {
+                "status": "error",
+                "message": (
+                    f"{display} is already added. Sign in with a different "
+                    "Riot account to add it."
+                ),
+                "display": display,
+            })
+            return False
+
         self._emit("account_detection_progress", {
             "status": "already_added",
             "message": f"{display} is already added. Opening login\u2026",
@@ -167,6 +224,7 @@ class AccountDetector:
             "message": "Opening Riot Client\u2026",
         })
         self._try_launch()
+        return True
 
     def _handle_new_account(self, account, display):
         """Handle a newly detected account.
@@ -226,7 +284,8 @@ class AccountDetector:
             if account:
                 profiles_list = self.profiles.load()
                 if not rad.is_account_new(account, profiles_list):
-                    self._handle_already_added(rad.display_uid(account))
+                    if not self._handle_already_added(rad.display_uid(account)):
+                        return
                     started = time.time()
                     self._stop.wait(RELAUNCH_WAIT_S)
                     continue

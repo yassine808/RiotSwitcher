@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow } from "electron";
 import { autoUpdater, UpdateInfo } from "electron-updater";
 import log from "electron-log";
 
@@ -6,10 +6,13 @@ import log from "electron-log";
 // published after the app was opened. Startup does the first check.
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const STARTUP_CHECK_DELAY_MS = 5000;
+// A downloaded update restarts the app on its own. The short pause lets the
+// renderer paint its "restarting" state instead of the window vanishing first.
+const AUTO_INSTALL_DELAY_MS = 3000;
 
 autoUpdater.logger = log;
-// Download and install without asking: the dialog below only offers "restart
-// now" or "apply on next quit", never "skip this version".
+// Download and install without asking: the update applies on its own as soon
+// as it has been downloaded and verified. The renderer only reports progress.
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.autoRunAppAfterInstall = true;
@@ -25,7 +28,9 @@ function installOnce(): void {
     return;
   }
   installing = true;
-  autoUpdater.quitAndInstall(false, true);
+  // Silent: an update the user never had to approve should not pop an
+  // installer wizard either. Force-run so the app comes back afterwards.
+  autoUpdater.quitAndInstall(true, true);
 }
 
 export function setUpdateWindow(win: BrowserWindow): void {
@@ -81,27 +86,9 @@ export function initAutoUpdater(): void {
 
   autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
     sendToRenderer("update:status", { state: "downloaded", version: info.version });
-    // Parent the dialog to the live window, otherwise it can open behind the
-    // app (or as an orphan taskbar entry) on Windows.
-    const parent = updateWindow && !updateWindow.isDestroyed() ? updateWindow : undefined;
-    dialog
-      .showMessageBox(parent!, {
-        type: "info",
-        title: "Update Ready",
-        message: `Riot Switcher v${info.version} has been downloaded.`,
-        // autoInstallOnAppQuit is enabled, so "Later" only defers to the next
-        // quit. Say so rather than implying the update is being declined.
-        detail:
-          "Restart now to apply the update, or keep using the app — it will be installed the next time Riot Switcher closes.",
-        buttons: ["Restart Now", "Later"],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      .then(({ response }) => {
-        if (response === 0) {
-          installOnce();
-        }
-      });
+    // No prompt: the file is downloaded and hash-verified, so restart into it.
+    // The delay only gives the renderer time to show "restarting soon".
+    setTimeout(installOnce, AUTO_INSTALL_DELAY_MS).unref?.();
   });
 
   autoUpdater.on("error", (err) => {

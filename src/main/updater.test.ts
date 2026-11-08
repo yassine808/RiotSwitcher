@@ -10,19 +10,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * could separately fire the `update:install` IPC. Both paths called
  * `autoUpdater.quitAndInstall()` unguarded, so two installers could race on
  * the same process. The fix funnels both through a single `installOnce()`
- * latch.
+ * latch. A downloaded update now installs itself; the IPC route stays for the
+ * manual button.
  *
- * The second group pins the "always check" behaviour: packaged builds check on
+ * The last group pins the "always check" behaviour: packaged builds check on
  * start and then on a timer, dev builds never touch the network.
  */
 function mockModules(isPackaged: boolean) {
   const checkForUpdates = vi.fn(async () => undefined);
+  const handlers = new Map<string, (...args: unknown[]) => void>();
   vi.doMock("electron-updater", () => ({
     autoUpdater: {
       logger: null,
       autoDownload: true,
       autoInstallOnAppQuit: true,
-      on: vi.fn(),
+      on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+        handlers.set(event, cb);
+      }),
       checkForUpdates,
       downloadUpdate: vi.fn(async () => undefined),
       quitAndInstall: quitAndInstallMock,
@@ -31,12 +35,11 @@ function mockModules(isPackaged: boolean) {
   vi.doMock("electron", () => ({
     app: { isPackaged },
     BrowserWindow: class {},
-    dialog: { showMessageBox: vi.fn() },
   }));
   vi.doMock("electron-log", () => ({
     default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
   }));
-  return { checkForUpdates };
+  return { checkForUpdates, handlers };
 }
 
 let quitAndInstallMock: ReturnType<typeof vi.fn>;
@@ -68,6 +71,44 @@ describe("quitAndInstall re-entrancy", () => {
     const mod = await import("./updater");
     mod.quitAndInstall();
     expect(quitAndInstallMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("installs silently and reopens the app", async () => {
+    mockModules(true);
+
+    const mod = await import("./updater");
+    mod.quitAndInstall();
+
+    expect(quitAndInstallMock).toHaveBeenCalledWith(true, true);
+  });
+});
+
+describe("automatic install", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    quitAndInstallMock = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("restarts into a downloaded update without waiting for a click", async () => {
+    vi.useFakeTimers();
+    const { handlers } = mockModules(true);
+
+    const mod = await import("./updater");
+    mod.initAutoUpdater();
+    const downloaded = handlers.get("update-downloaded");
+    expect(downloaded).toBeTypeOf("function");
+
+    downloaded!({ version: "9.9.9" });
+    expect(quitAndInstallMock).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(quitAndInstallMock).toHaveBeenCalledTimes(1);
+    expect(quitAndInstallMock).toHaveBeenCalledWith(true, true);
   });
 });
 

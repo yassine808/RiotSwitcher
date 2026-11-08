@@ -669,6 +669,9 @@ def main():
             profiles, protocol, tracker, sessions, config, riot, name
         ),
         killer=riot.kill_all_and_wait,
+        # Both live login files (the private settings and the Sessions folder)
+        # must go, otherwise the client auto-signs the known account back in.
+        clear_login=lambda: sessions.clear_live_session(""),
     )
 
     helpers = SimpleNamespace(

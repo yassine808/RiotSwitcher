@@ -136,6 +136,23 @@ function setupIpc(): void {
   const senderWindow = (event: IpcMainInvokeEvent) =>
     BrowserWindow.fromWebContents(event.sender) ?? appWindow?.win ?? null;
 
+  // The tray behaviour lives in the window's close handlers, but the setting
+  // itself is written through the backend. Mirror those writes immediately so
+  // the X button follows a toggle without an app restart.
+  const syncTrayBehavior = (method: string, params: Record<string, unknown>): void => {
+    if (!appWindow) return;
+    const apply = (key: unknown, value: unknown) => {
+      if (key === "CloseToTray" || key === "MinimizeToTray") {
+        appWindow?.updateTrayBehavior(key, Boolean(value));
+      }
+    };
+    if (method === "set_config") {
+      apply(params.key, params.value);
+    } else if (method === "set_config_many" && params.items && typeof params.items === "object") {
+      for (const [key, value] of Object.entries(params.items as Record<string, unknown>)) apply(key, value);
+    }
+  };
+
   ipcMain.handle("window:minimize", (event) => senderWindow(event)?.minimize());
   ipcMain.handle("window:close", (event) => senderWindow(event)?.close());
   ipcMain.handle("window:toggleMaximize", (event) => {
@@ -194,7 +211,9 @@ function setupIpc(): void {
 
   ipcMain.handle("python:call", async (_event, method: string, params: Record<string, unknown> = {}) => {
     if (!python) throw new Error("Python backend not running");
-    return python.call(method, params);
+    const result = await python.call(method, params);
+    syncTrayBehavior(method, params);
+    return result;
   });
 
   python?.onEvent((event: string, params: unknown) => {

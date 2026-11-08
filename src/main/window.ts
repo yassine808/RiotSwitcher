@@ -12,6 +12,8 @@ export interface AppWindow {
   requestClose: () => void;
   /** Let an app-level quit through the close-to-tray interceptor. */
   permitClose: () => void;
+  /** Apply a tray setting without restarting the app. */
+  updateTrayBehavior: (key: "CloseToTray" | "MinimizeToTray", value: boolean) => void;
 }
 
 // The lobby card stack is fixed-size in CSS: title bar 40 + page top 16 +
@@ -101,36 +103,28 @@ export async function createAppWindow(python: PythonBridge, callbacks: WindowCal
     reveal();
   });
 
-  // A rejected load must not abort the rest of start-up: the window is already
-  // created, so show it and let the renderer report the failure in its own UI.
-  try {
-    if (process.env.ELECTRON_RENDERER_URL) {
-      await win.loadURL(process.env.ELECTRON_RENDERER_URL);
-    } else {
-      await win.loadFile(join(__dirname, "../renderer/index.html"));
-    }
-  } catch (err) {
-    log.error("Renderer failed to load:", err);
-  }
-
-  clearTimeout(showFallback);
-  reveal();
-
-  const { closeToTray, minimizeToTray } = await readTrayConfig(python);
+  // Tray behaviour defaults match `readTrayConfig`'s fallback. The listeners are
+  // attached before the config read on purpose: the backend can take seconds to
+  // answer `get_config`, and an X pressed in that gap used to fall through to the
+  // default close and quit the app instead of hiding it.
+  const trayConfig = { closeToTray: true, minimizeToTray: false };
+  let allowClose = false;
 
   // Intercept window close: hide to tray if enabled.
-  let allowClose = false;
   win.on("close", (event) => {
     if (allowClose) return;
-    if (closeToTray) {
+    if (trayConfig.closeToTray) {
+      // Keep the process alive but actually take the window off screen. The
+      // old code only preventDefault()ed, so the X button looked dead.
       event.preventDefault();
+      win.hide();
       callbacks.onCloseToTray("close");
     }
   });
 
   // Intercept minimize: hide to tray if enabled.
   win.on("minimize", () => {
-    if (minimizeToTray) {
+    if (trayConfig.minimizeToTray) {
       win.hide();
       callbacks.onCloseToTray("minimize");
     }
@@ -152,5 +146,32 @@ export async function createAppWindow(python: PythonBridge, callbacks: WindowCal
     allowClose = true;
   };
 
-  return { win, requestClose, permitClose };
+  // Settings are saved through the Python backend, but the close handlers run
+  // in the main process. Without this the new value only took effect after a
+  // restart, so turning "Close to Tray" off still made the X button hide.
+  const updateTrayBehavior = (key: "CloseToTray" | "MinimizeToTray", value: boolean) => {
+    if (key === "CloseToTray") trayConfig.closeToTray = value;
+    else trayConfig.minimizeToTray = value;
+  };
+
+  // A rejected load must not abort the rest of start-up: the window is already
+  // created, so show it and let the renderer report the failure in its own UI.
+  try {
+    if (process.env.ELECTRON_RENDERER_URL) {
+      await win.loadURL(process.env.ELECTRON_RENDERER_URL);
+    } else {
+      await win.loadFile(join(__dirname, "../renderer/index.html"));
+    }
+  } catch (err) {
+    log.error("Renderer failed to load:", err);
+  }
+
+  clearTimeout(showFallback);
+  reveal();
+
+  const storedTrayConfig = await readTrayConfig(python);
+  trayConfig.closeToTray = storedTrayConfig.closeToTray;
+  trayConfig.minimizeToTray = storedTrayConfig.minimizeToTray;
+
+  return { win, requestClose, permitClose, updateTrayBehavior };
 }
