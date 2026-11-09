@@ -213,14 +213,9 @@ jobs:
         # still being served. A stale edge copy is retried, not excused.
         env:
           R2_BUCKET: riotswitcher-updates
+        # No upload-artifact step: by now the GitHub release carries the
+        # installer, its blockmap and both manifests, and the feed carries the
+        # portable too. Archiving ~265 MB per run as well only burned the
+        # account's artifact quota, which failed the run after it had already
+        # published successfully.
         run: npm run verify:feed
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: RiotSwitcher-windows
-          path: |
-            release/*.exe
-            release/latest.yml
-            release/latest.json
-          if-no-files-found: error
