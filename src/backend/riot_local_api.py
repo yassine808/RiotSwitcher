@@ -177,8 +177,17 @@ def resolve_product(port, password, product, patchline, timeout=REQUEST_TIMEOUT_
     return product, patchline
 
 
-def launch_product(port, password, product, patchline, timeout=REQUEST_TIMEOUT_S):
-    """Ask the client to start the product. True when the request was accepted."""
+def launch_product_status(port, password, product, patchline, timeout=REQUEST_TIMEOUT_S):
+    """Ask the client to start the product. Returns the HTTP status (0 = no answer).
+
+    ``423 Locked`` is the client's way of saying the product is already being
+    started, so the watchdog treats it like a success instead of retrying.
+    """
     path = f"/product-launcher/v1/products/{product}/patchlines/{patchline}"
     status, _ = _request(port, password, path, method="POST", timeout=timeout)
-    return 200 <= status < 300
+    return status
+
+
+def launch_product(port, password, product, patchline, timeout=REQUEST_TIMEOUT_S):
+    """Ask the client to start the product. True when the request was accepted."""
+    return 200 <= launch_product_status(port, password, product, patchline, timeout) < 300

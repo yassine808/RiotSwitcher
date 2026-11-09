@@ -153,7 +153,7 @@ class TestLaunchClient(unittest.TestCase):
 
 
 class TestProductWatchdog(unittest.TestCase):
-    def _run(self, *, credentials, has_product, launch_product, grace=None, timeout=None,
+    def _run(self, *, credentials, has_product, launch_status, timeout=None,
              resolved=("valorant", "live")):
         manager = riot_client.RiotClientManager(_config(riot_client.LAUNCH_PRODUCT_VALORANT))
         fake_time = FakeTime()
@@ -163,10 +163,8 @@ class TestProductWatchdog(unittest.TestCase):
             stack.enter_context(mock.patch.object(riot_client.local_api, "resolve_product", return_value=resolved))
             stack.enter_context(mock.patch.object(riot_client.local_api, "has_product", side_effect=has_product))
             launch = stack.enter_context(
-                mock.patch.object(riot_client.local_api, "launch_product", side_effect=launch_product)
+                mock.patch.object(riot_client.local_api, "launch_product_status", side_effect=launch_status)
             )
-            if grace is not None:
-                stack.enter_context(mock.patch.object(riot_client, "PRODUCT_LAUNCH_GRACE_S", grace))
             if timeout is not None:
                 stack.enter_context(mock.patch.object(riot_client, "PRODUCT_LAUNCH_TIMEOUT_S", timeout))
             manager._confirm_product_launch("valorant", "live", 4242)
@@ -175,43 +173,77 @@ class TestProductWatchdog(unittest.TestCase):
     def test_does_nothing_when_the_game_session_already_exists(self):
         launch = self._run(
             credentials=lambda *a, **k: (1234, "pw"),
-            has_product=lambda *a: True,
-            launch_product=lambda *a: True,
+            has_product=lambda *a, **k: True,
+            launch_status=lambda *a, **k: 200,
         )
         launch.assert_not_called()
 
-    def test_starts_the_product_after_the_grace_window(self):
+    def test_starts_the_product_on_the_first_poll(self):
         launch = self._run(
             credentials=lambda *a, **k: (1234, "pw"),
-            has_product=lambda *a: False,
-            launch_product=lambda *a: True,
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: 0,
         )
-        # Grace window elapses, then at most PRODUCT_LAUNCH_MAX_ATTEMPTS calls,
-        # each PRODUCT_LAUNCH_RETRY_S apart.
+        # No grace window: the first poll with credentials sends immediately,
+        # then at most PRODUCT_LAUNCH_MAX_ATTEMPTS calls, each RETRY_S apart.
         self.assertEqual(launch.call_count, riot_client.PRODUCT_LAUNCH_MAX_ATTEMPTS)
-        launch.assert_called_with(1234, "pw", "valorant", "live")
+        launch.assert_called_with(1234, "pw", "valorant", "live", timeout=mock.ANY)
+
+    def test_first_launch_request_happens_without_delay(self):
+        """Riot's own auto-launch costs 10-20 s; the watchdog must not add to it."""
+        clock = FakeTime()
+        manager = riot_client.RiotClientManager(_config(riot_client.LAUNCH_PRODUCT_VALORANT))
+        sent_at = []
+
+        def sent(*_args, **_kwargs):
+            sent_at.append(clock.monotonic())
+            return 0
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(riot_client, "time", clock))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "read_credentials",
+                                                  return_value=(1234, "pw")))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "resolve_product",
+                                                  return_value=("valorant", "live")))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "has_product",
+                                                  return_value=False))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "launch_product_status",
+                                                  side_effect=sent))
+            stack.enter_context(mock.patch.object(riot_client, "PRODUCT_LAUNCH_TIMEOUT_S", 1.0))
+            manager._confirm_product_launch("valorant", "live", 4242)
+
+        self.assertEqual(sent_at, [0.0])
 
     def test_gives_up_when_the_client_api_never_answers(self):
         launch = self._run(
             credentials=lambda *a, **k: None,
-            has_product=lambda *a: False,
-            launch_product=lambda *a: True,
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: 0,
         )
         launch.assert_not_called()
 
     def test_stops_after_one_attempt_when_the_game_appears(self):
         checks = []
 
-        def has_product(*_args):
+        def has_product(*_args, **_kwargs):
             checks.append(True)
-            return len(checks) > 3
+            return len(checks) > 2
 
         launch = self._run(
             credentials=lambda *a, **k: (1234, "pw"),
             has_product=has_product,
-            launch_product=lambda *a: True,
-            grace=2,
+            launch_status=lambda *a, **k: 200,
             timeout=60,
+        )
+        self.assertEqual(launch.call_count, 1)
+
+    def test_stops_posting_when_the_client_says_locked(self):
+        """423 = the client is already starting the game; do not fight it."""
+        launch = self._run(
+            credentials=lambda *a, **k: (1234, "pw"),
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: riot_client.HTTP_LOCKED,
+            timeout=10,
         )
         self.assertEqual(launch.call_count, 1)
 
@@ -225,23 +257,30 @@ class TestProductWatchdog(unittest.TestCase):
 
         launch = self._run(
             credentials=credentials,
-            has_product=lambda *a: False,
-            launch_product=lambda *a: True,
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: 0,
             timeout=5,
         )
         launch.assert_not_called()
         self.assertEqual(set(seen), {4242})
 
-    def test_uses_the_clients_own_patchline(self):
+    def test_retries_with_the_clients_own_patchline(self):
+        """The first attempt uses the fallback; the retry follows the client."""
+        answers = []
+
+        def status(*_args, **_kwargs):
+            answers.append(True)
+            return 404 if len(answers) == 1 else 200
+
         launch = self._run(
             credentials=lambda *a, **k: (1234, "pw"),
-            has_product=lambda *a: False,
-            launch_product=lambda *a: True,
+            has_product=lambda *a, **k: False,
+            launch_status=status,
             resolved=("valorant", "pbe"),
-            grace=1,
             timeout=5,
         )
-        launch.assert_called_with(1234, "pw", "valorant", "pbe")
+        self.assertEqual(launch.call_count, 2)
+        launch.assert_called_with(1234, "pw", "valorant", "pbe", timeout=mock.ANY)
 
 
 class TestOrchestratorConfirmsProduct(unittest.TestCase):

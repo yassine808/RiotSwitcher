@@ -30,15 +30,22 @@ LAUNCH_PATCHLINE = "live"  # fallback when the client's install record is unread
 
 # Riot treats --launch-product as a hint: it reaches the product page and then
 # sometimes never presses Play (seen in the client log: the VALORANT page loads,
-# no "product-launcher: Launch starting" follows). The product page is ready
-# ~10 s after start when Riot does press Play itself, so the watchdog waits a
-# short grace window and then asks the client's product launcher itself. The
-# user gives up well before a longer wait would pay off.
-PRODUCT_LAUNCH_GRACE_S = 12.0
-PRODUCT_LAUNCH_RETRY_S = 8.0
-PRODUCT_LAUNCH_MAX_ATTEMPTS = 15
-PRODUCT_LAUNCH_POLL_S = 1.0
+# no "product-launcher: Launch starting" follows). Waiting for Riot costs
+# 10-20 s even when it does work, so the watchdog does not wait: the moment the
+# client's local API answers, it asks the product launcher itself. A client that
+# is not ready yet rejects the request; the retry covers that.
+PRODUCT_LAUNCH_RETRY_S = 1.0
+PRODUCT_LAUNCH_MAX_ATTEMPTS = 60
+PRODUCT_LAUNCH_POLL_S = 0.2
+# The client stops answering while it boots; a 5 s socket timeout would turn
+# every poll into a 5 s stall and push the retry out with it. Short calls keep
+# the loop responsive, and a refused connection is simply "not ready yet".
+PRODUCT_LAUNCH_API_TIMEOUT_S = 0.5
 PRODUCT_LAUNCH_TIMEOUT_S = 150.0
+# The client returns this when the product is already being launched.
+HTTP_LOCKED = 423
+# If a 423 never turns into a session, start posting again after this long.
+PRODUCT_LAUNCH_RELOCK_S = 20.0
 
 # Riot's canonical install manifest and metadata YAML.
 RIOT_INSTALLS_JSON = r"C:/ProgramData/Riot Games/RiotClientInstalls.json"
@@ -332,15 +339,17 @@ class RiotClientManager:
         return proc.pid
 
     def _confirm_product_launch(self, product, patchline, client_pid=None):
-        """Start the product when Riot's own auto-launch request was dropped.
+        """Start the product as soon as the client's local API answers.
 
         Runs on a daemon thread so the launch request returns as soon as the
         client is spawned: the game can take 15-40 s to appear, and the UI must
         not wait for that. Polls the client's local API, which reports the real
         product session (``productId``/``patchlineId``) - more reliable than
-        guessing from the process table. If no session exists after the grace
-        window, the product launcher endpoint is called, retrying until the
-        session appears or the timeout expires.
+        guessing from the process table. The product launcher endpoint is called
+        on the first poll that has credentials (there is no grace window), then
+        retried until the session appears or the timeout expires. A ``423``
+        answer means the client is already starting the product, so it stops
+        re-posting instead of fighting Riot's own auto-launch.
 
         Lockfile credentials are re-read on every poll and must belong to the
         client this launch spawned (``client_pid``). The previous client's
@@ -352,36 +361,56 @@ class RiotClientManager:
         fallback while the client is still starting.
         """
         deadline = time.monotonic() + PRODUCT_LAUNCH_TIMEOUT_S
-        ready_at = None
+        started_at = time.monotonic()
         attempts = 0
         last_attempt = 0.0
         resolved = False
+        launching = False
+        status = 0
         while time.monotonic() < deadline:
             credentials = local_api.read_credentials(client_pid=client_pid)
             if credentials:
                 port, password = credentials
-                if not resolved:
-                    product, patchline = local_api.resolve_product(port, password, product, patchline)
-                    resolved = True
-                    _log(f"watchdog: targeting {product}.{patchline}")
-                if local_api.has_product(port, password, product, patchline):
-                    if attempts:
-                        _log(f"watchdog: {product}.{patchline} is up after {attempts} launch request(s)")
-                    return
                 now = time.monotonic()
-                if ready_at is None:
-                    ready_at = now
-                if attempts == 0:
-                    due = now - ready_at >= PRODUCT_LAUNCH_GRACE_S
-                else:
-                    due = now - last_attempt >= PRODUCT_LAUNCH_RETRY_S
-                if due and attempts < PRODUCT_LAUNCH_MAX_ATTEMPTS:
+                if local_api.has_product(
+                    port, password, product, patchline, timeout=PRODUCT_LAUNCH_API_TIMEOUT_S
+                ):
+                    if attempts:
+                        _log(
+                            f"watchdog: {product}.{patchline} is up after {attempts} "
+                            f"launch request(s), {now - started_at:.1f}s after spawn"
+                        )
+                    return
+                # A 423 says the client is already starting the product; stop
+                # re-posting, but fall back to retrying if it never appears.
+                if launching and now - last_attempt >= PRODUCT_LAUNCH_RELOCK_S:
+                    launching = False
+                if not launching and (attempts == 0 or now - last_attempt >= PRODUCT_LAUNCH_RETRY_S) \
+                        and attempts < PRODUCT_LAUNCH_MAX_ATTEMPTS:
                     attempts += 1
                     last_attempt = now
-                    accepted = local_api.launch_product(port, password, product, patchline)
-                    _log(f"watchdog: launch request {attempts} accepted={accepted}")
+                    status = local_api.launch_product_status(
+                        port, password, product, patchline, timeout=PRODUCT_LAUNCH_API_TIMEOUT_S
+                    )
+                    _log(
+                        f"watchdog: launch request {attempts} status={status} "
+                        f"after {now - started_at:.1f}s"
+                    )
+                    if 200 <= status < 300 or status == HTTP_LOCKED:
+                        launching = True
+                    if not resolved and status:
+                        # The client answered, so its catalogue is readable.
+                        product, patchline = local_api.resolve_product(
+                            port, password, product, patchline,
+                            timeout=PRODUCT_LAUNCH_API_TIMEOUT_S,
+                        )
+                        resolved = True
+                        _log(f"watchdog: targeting {product}.{patchline}")
             time.sleep(PRODUCT_LAUNCH_POLL_S)
-        _log(f"watchdog: gave up on {product}.{patchline} after {attempts} launch request(s)")
+        _log(
+            f"watchdog: gave up on {product}.{patchline} after {attempts} "
+            f"launch request(s), last status={status}"
+        )
 
     def is_running(self):
         """True while any known Riot process is running."""
