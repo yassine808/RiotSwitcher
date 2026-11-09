@@ -1,0 +1,30 @@
+{
+  "card": {
+    "w": 268,
+    "h": 640
+  },
+  "cards": [
+    {
+      "agent": "Reyna",
+      "codename": "Vampire",
+      "card": "Bloomline_Vampire",
+      "file": "Reyna_Mastery_Card_animated.apng",
+      "cols": 4,
+      "rows": 4,
+      "frames": 16,
+      "cellW": 256.0,
+      "cellH": 256.0,
+      "sheetW": 1024,
+      "sheetH": 1024,
+      "ms": 206,
+      "blend": 0.309278,
+      "default": {
+        "cx": 129.71,
+        "cy": 47.32,
+        "w": 273.15,
+        "h": 257.44,
+        "rot": 0.0
+      }
+    }
+  ]
+}
