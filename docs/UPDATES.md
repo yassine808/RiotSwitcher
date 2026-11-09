@@ -102,6 +102,19 @@ manifest that names a file the bucket does not have yet. The GitHub release
 keeps the installer plus both manifests — the portables are delivered by the
 feed — so a later withdrawal has everything it needs.
 
+Before anything is published, `npm run verify:release`
+(`scripts/verify-release.mjs`) checks the release as a whole:
+
+| Check | Catches |
+| --- | --- |
+| pinned updater source still matches `updater.lock.json` | an uncommitted or unre-pinned change to `updater.ts` / `updateFeed.ts` / `portableUpdate.ts` |
+| `app.asar` (or `out/main/index.js`) contains the feed URL | a packaged app built from an older tree |
+| `latest.yml`: version, size, sha512, `path` | a manifest that names a file that is not in `release/`, or a stale hash |
+| `latest.json`: version, url host, size, sha256 | the same for the portable exe |
+
+Any failure exits non-zero and stops the run before GitHub or the bucket sees
+anything. Run it locally the same way after `npm run build`.
+
 The run stops on its first step while `CLOUDFLARE_API_TOKEN` or
 `CLOUDFLARE_ACCOUNT_ID` is missing: a release that reaches GitHub but not the
 feed leaves every installed copy on the old version, so failing loudly is the
@@ -276,6 +289,8 @@ bad one still needs a higher version number published normally.
   `updater.ts`, `updateFeed.ts` or `portableUpdate.ts` fails CI until the lock
   is re-pinned in the same commit.
 - Never upload a manifest before its binary.
+- `npm run verify:release` must pass before a release is published: it is the
+  only check that looks at the packaged app and both manifests together.
 - The bucket carries the newest three versions. `scripts/prune-feed.mjs`
   deletes everything older after the new manifests are live, never before;
   `--keep 1` restores the one-version behaviour.

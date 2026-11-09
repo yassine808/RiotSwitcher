@@ -22,6 +22,7 @@
     "check:api-leaks": "node scripts/check-api-leaks.mjs",
     "check:updater": "node scripts/check-updater-lock.mjs",
     "feed:prune": "node scripts/prune-feed.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
     "lint": "eslint src/renderer/src/ src/main/",
     "lint:fix": "eslint src/renderer/src/ src/main/ --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"*.{json,mjs,ts}\" \".github/**/*.{yml,yaml}\"",

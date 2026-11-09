@@ -1972,3 +1972,21 @@
 - Next: add the two Cloudflare secrets, then tag `v3.1.13` to prove the publish
   runs with no manual upload. The live portable test is still on hold while
   VALORANT is running.
+
+### 2026-11-09 - Gate the release on the updater being correct
+
+- Goal: stop a release reaching the feed when the updater it ships is not the
+  pinned one, or when a manifest does not describe the files next to it.
+- Done:
+  - `scripts/verify-release.mjs` (`npm run verify:release`) checks the updater
+    lock, that `release/win-unpacked/resources/app.asar` (falling back to
+    `out/main/index.js`) contains the live feed URL, and that latest.yml and
+    latest.json match the files in `release/` by version, size and hash.
+  - `release.yml`: the old pwsh "manifest points at a real artifact" step is
+    replaced by `npm run verify:release`, run after packaging and before
+    publishing to GitHub or the bucket.
+- Verified: 12 checks pass on the 3.1.12 artifacts; a tampered sha256, a wrong
+  size and a missing portable each exit 1 with the specific message; touching
+  `src/main/updater.ts` exits 1 naming the file; prettier clean on the script
+  and the workflow.
+- Next: unchanged - add the Cloudflare secrets, then tag v3.1.13.

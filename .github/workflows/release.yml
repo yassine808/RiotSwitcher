@@ -124,29 +124,20 @@ jobs:
           # electron-builder does not try to discover one on the runner.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Verify the updater manifest points at a real artifact
-        # latest.yml is what the installed app downloads. GitHub rewrites spaces
-        # in release asset names, so a manifest URL that does not literally
-        # match a file in release/ produces a 404 and the app never updates.
-        shell: pwsh
-        run: |
-          $manifest = Get-Content release/latest.yml -Raw
-          $urls = [regex]::Matches($manifest, '^\s*-\s*url:\s*(.+?)\s*$', 'Multiline') |
-            ForEach-Object { $_.Groups[1].Value.Trim() }
-          if ($urls.Count -eq 0) { throw "latest.yml lists no files" }
-          foreach ($url in $urls) {
-            $path = Join-Path "release" $url
-            if (-not (Test-Path $path)) {
-              throw "latest.yml references '$url', which is not in release/ (check the artifactName)"
-            }
-          }
-
       - name: Build the portable update manifest
         # latest.json carries the portable exe's URL, size and sha256; the
         # portable build reads it instead of latest.yml, which needs a YAML
         # parser it does not ship. Built before the release is published so the
         # release keeps a copy: withdrawing it later needs both manifests.
         run: node scripts/make-update-manifest.mjs
+
+      - name: Verify the release before it is published
+        # The last gate. Everything the feed will serve is checked here: the
+        # updater source still matches its lock, the packaged app carries the
+        # live feed URL, and both manifests match the files byte for byte.
+        # GitHub rewrites spaces in release asset names, so a manifest naming a
+        # file that is not in release/ is a 404 and the app never updates.
+        run: npm run verify:release
 
       - name: Publish the release
         shell: pwsh
