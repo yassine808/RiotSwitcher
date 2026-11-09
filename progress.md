@@ -1891,3 +1891,35 @@
 - Next: push the guard so the `updater-lock` job runs on GitHub.
 
 
+
+### 2026-11-09 - Public update feed (R2) + portable self-update
+
+- Goal: the repository is private, so release assets need a token and no
+  installed copy could update. Move the feed to a public Cloudflare R2 bucket
+  and make the portable build update itself.
+- Done:
+  - Bucket \iotswitcher-updates\ created (account
+    \d6e06264fb54c9b459f4d3975543474a\), public at
+    \https://pub-6d3d6d22222242dab87967c474f39ada.r2.dev\.
+  - \src/main/updateFeed.ts\: the one feed URL both updaters read;
+    \RIOTSWITCHER_UPDATE_FEED\ overrides it for a local test server.
+  - \src/main/updater.ts\: \setFeedURL({provider: "generic"})\ before the
+    first check, so the NSIS updater ignores the private GitHub feed.
+  - \src/main/portableUpdate.ts\: reads \latest.json\, downloads the portable
+    exe, verifies size + sha256, then hands the swap to a batch script that
+    waits for this process to exit, renames the old exe, drops the new one in
+    and starts it. Leftovers are removed on the next start.
+  - \scripts/make-update-manifest.mjs\: writes \elease/latest.json\.
+  - \elease.yml\: builds the manifest and uploads binaries + manifests to the
+    bucket (skipped while the Cloudflare secrets are empty); GitHub releases
+    now carry the installer only.
+  - The updater lock now pins \updater.ts\, \updateFeed.ts\ and
+    \portableUpdate.ts\ together; re-pinned in the same commit.
+  - Deleted the portable asset from all nine GitHub releases.
+- Verified: an object uploaded with wrangler is readable anonymously
+  (\HTTP 200\) from the r2.dev URL; \make-update-manifest.mjs\ produced a
+  manifest with the real URL, size and sha256 for the 3.1.10 portable;
+  typecheck, lint, \check:updater\, prettier and the tuner smoke test pass.
+- Next: build and publish 3.1.11 (first build with the portable updater), then
+  3.1.12, run the 3.1.11 portable and watch it replace itself with 3.1.12.
+  CI uploads need \CLOUDFLARE_API_TOKEN\ / \CLOUDFLARE_ACCOUNT_ID\ secrets.
