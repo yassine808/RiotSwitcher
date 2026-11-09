@@ -9,12 +9,16 @@
  *   RiotSwitcher-Setup-<version>.exe.blockmap
  *   RiotSwitcher-<version>-portable.exe
  *
- * Versions are collected from the git tags (every CI release is a tag), from
- * the files in release/ (a local publish), and from --version. Only the
- * current version is kept by default, so the bucket carries one release;
- * `--keep N` widens the window when older builds should stay around for a
- * rollback. Objects named for the current version and both manifests are never
- * touched.
+ * With CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID set, the bucket is listed
+ * and every version-shaped object outside the window is deleted. That is the
+ * only accurate source: a build uploaded without a tag, or whose tag was
+ * deleted, is invisible to tags and would otherwise stay forever. Without the
+ * token (a local wrangler login), versions are collected from the git tags, the
+ * files in release/ and --version, and their usual names are probed instead.
+ *
+ * Only the current version is kept by default, so the bucket carries one
+ * release; `--keep N` widens the window when older builds should stay around
+ * for a rollback. Both manifests are never touched.
  *
  *   node scripts/prune-feed.mjs                    # keep the current version only
  *   node scripts/prune-feed.mjs --keep 3           # keep room to roll back
@@ -30,12 +34,21 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  MANIFEST_KEYS,
+  bucketCredentials,
+  compareVersions,
+  feedBase,
+  listBucket,
+  objectNames,
+  versionOfKey,
+} from "./lib/feed.mjs";
+
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SCRIPT_DIR, "..");
 const RELEASE_DIR = join(ROOT, "release");
 
 const BUCKET = process.env.R2_BUCKET || "riotswitcher-updates";
-const KEEP_NAMES = new Set(["latest.yml", "latest.json"]);
 // One release in the bucket by default. Raise it (or pass --keep) when the
 // previous builds should stay around: with them there, a bad release is undone
 // by putting the older manifests back instead of rebuilding it.
@@ -44,13 +57,6 @@ const DEFAULT_KEEP = 1;
 function fail(message) {
   console.error(`[feed-prune] ${message}`);
   process.exit(1);
-}
-
-function feedBase() {
-  const source = readFileSync(join(ROOT, "src", "main", "updateFeed.ts"), "utf8");
-  const match = source.match(/DEFAULT_FEED_URL\s*=\s*"([^"]+)"/);
-  if (!match) fail("cannot read DEFAULT_FEED_URL from src/main/updateFeed.ts");
-  return match[1].replace(/\/+$/, "");
 }
 
 function argvValues(flag) {
@@ -70,17 +76,6 @@ function retention() {
   const count = Number(raw);
   if (!Number.isInteger(count) || count < 1) fail(`invalid keep count: ${raw}`);
   return count;
-}
-
-// Numeric, so 3.1.9 sorts before 3.1.10 (localeCompare would not).
-function compareVersions(a, b) {
-  const left = a.split(".").map(Number);
-  const right = b.split(".").map(Number);
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const diff = (left[index] ?? 0) - (right[index] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 function taggedVersions() {
@@ -105,14 +100,6 @@ function releasedVersions() {
   } catch {
     return [];
   }
-}
-
-function names(version) {
-  return [
-    `RiotSwitcher-Setup-${version}.exe`,
-    `RiotSwitcher-Setup-${version}.exe.blockmap`,
-    `RiotSwitcher-${version}-portable.exe`,
-  ];
 }
 
 async function exists(url) {
@@ -140,9 +127,28 @@ function deleteObject(key) {
 const current = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 const dryRun = process.argv.includes("--dry-run");
 const keepCount = retention();
-const base = feedBase();
+const base = feedBase(ROOT);
 
-const known = new Set([...taggedVersions(), ...releasedVersions(), ...argvVersion(), current]);
+// The bucket's own list is the source of truth when the API credentials are
+// there (every CI run). Without them a local wrangler login can delete but not
+// list, so fall back to probing the names the tags and release/ imply.
+const credentials = bucketCredentials();
+let objects = null;
+if (credentials) {
+  try {
+    objects = await listBucket(credentials);
+  } catch (error) {
+    fail(`cannot list ${BUCKET}: ${error.message}`);
+  }
+} else {
+  console.warn(
+    "[feed-prune] no CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID: probing " +
+      "the names known from tags and release/ instead of listing the bucket",
+  );
+}
+
+const bucketVersions = (objects ?? []).map(versionOfKey).filter(Boolean);
+const known = new Set([...taggedVersions(), ...releasedVersions(), ...argvVersion(), ...bucketVersions, current]);
 
 // Newest last, so the log reads like the release history.
 const ordered = [...known].sort(compareVersions);
@@ -151,17 +157,23 @@ const ordered = [...known].sort(compareVersions);
 const kept = new Set(ordered.slice(-keepCount));
 kept.add(current);
 
-const stale = ordered.filter((version) => !kept.has(version));
-const currentNames = new Set(names(current));
-
-const candidates = stale.flatMap(names).filter((key) => !KEEP_NAMES.has(key) && !currentNames.has(key));
+const candidates = objects
+  ? objects.filter((key) => {
+      if (MANIFEST_KEYS.has(key)) return false;
+      const version = versionOfKey(key);
+      return version !== null && !kept.has(version);
+    })
+  : ordered
+      .filter((version) => !kept.has(version))
+      .flatMap(objectNames)
+      .filter((key) => !MANIFEST_KEYS.has(key));
 
 let deleted = 0;
 let absent = 0;
 let failed = 0;
 
 for (const key of candidates) {
-  if (!(await exists(`${base}/${key}`))) {
+  if (!objects && !(await exists(`${base}/${key}`))) {
     absent += 1;
     continue;
   }

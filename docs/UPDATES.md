@@ -86,12 +86,13 @@ is written after packaging for the portable build, which has no YAML parser:
 flowchart TD
   T["git tag vX.Y.Z"] --> GATE["gates<br/>typecheck · lint · vitest · pytest · check:updater"]
   GATE --> PACK["electron-builder<br/>NSIS + portable + latest.yml"]
-  PACK --> VERIFY["verify latest.yml names a file in release/"]
-  VERIFY --> MAN["make-update-manifest.mjs<br/>release/latest.json"]
-  MAN --> GH["GitHub release (private)<br/>Setup exe, blockmap, latest.yml, latest.json"]
-  MAN --> R2["wrangler r2 object put --remote<br/>binaries immutable, then manifests no-cache"]
+  PACK --> MAN["make-update-manifest.mjs<br/>release/latest.json"]
+  MAN --> VERIFY["verify:release<br/>tag · lock · asar · both manifests"]
+  VERIFY --> GH["GitHub release (private)<br/>Setup exe, blockmap, latest.yml, latest.json"]
+  GH --> R2["wrangler r2 object put --remote<br/>binaries immutable, then manifests no-cache"]
   R2 --> PRUNE["prune-feed.mjs<br/>keep the current version"]
-  PRUNE --> FEED["feed<br/>two manifests + one version"]
+  PRUNE --> CHECK["verify:feed<br/>read the public URL back"]
+  CHECK --> FEED["feed<br/>two manifests + one version"]
 ```
 
 `release.yml` uploads in that order on purpose: a client must never read a
@@ -104,13 +105,21 @@ Before anything is published, `npm run verify:release`
 
 | Check | Catches |
 | --- | --- |
+| tag vs `package.json` version | a release named `v3.1.13` that contains a `3.1.12` build |
 | pinned updater source still matches `updater.lock.json` | an uncommitted or unre-pinned change to `updater.ts` / `updateFeed.ts` / `portableUpdate.ts` |
 | `app.asar` (or `out/main/index.js`) contains the feed URL | a packaged app built from an older tree |
 | `latest.yml`: version, size, sha512, `path` | a manifest that names a file that is not in `release/`, or a stale hash |
 | `latest.json`: version, url host, size, sha256 | the same for the portable exe |
 
 Any failure exits non-zero and stops the run before GitHub or the bucket sees
-anything. Run it locally the same way after `npm run build`.
+anything. Run it locally the same way after `npm run build`; `--tag vX.Y.Z`
+(or `RELEASE_TAG`) adds the tag check.
+
+After the upload, `npm run verify:feed` (`scripts/verify-feed.mjs`) reads the
+public URL the way a client does: both manifests report this version, the
+binaries behind them answer 200 with the declared size, binaries are
+`immutable`, manifests are `no-cache`, and no older version is still served.
+A stale edge copy is retried for up to a minute, then fails the run.
 
 The run stops on its first step while `CLOUDFLARE_API_TOKEN` or
 `CLOUDFLARE_ACCOUNT_ID` is missing: a release that reaches GitHub but not the

@@ -133,10 +133,13 @@ jobs:
 
       - name: Verify the release before it is published
         # The last gate. Everything the feed will serve is checked here: the
-        # updater source still matches its lock, the packaged app carries the
-        # live feed URL, and both manifests match the files byte for byte.
-        # GitHub rewrites spaces in release asset names, so a manifest naming a
-        # file that is not in release/ is a 404 and the app never updates.
+        # tag names this version, the updater source still matches its lock, the
+        # packaged app carries the live feed URL, and both manifests match the
+        # files byte for byte. GitHub rewrites spaces in release asset names, so
+        # a manifest naming a file that is not in release/ is a 404 and the app
+        # never updates.
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: npm run verify:release
 
       - name: Publish the release
@@ -195,11 +198,22 @@ jobs:
         # The bucket carries one release. Once the new manifests are live the
         # previous version's binaries have no reader left, so remove them.
         # `node scripts/prune-feed.mjs --keep N` keeps more, for a rollback.
+        # The bucket is listed when the API token is present, so a build that
+        # never got a tag is pruned too.
         # Never before the upload: a client still reading the old manifest
         # would hit a deleted file.
         env:
           R2_BUCKET: riotswitcher-updates
         run: node scripts/prune-feed.mjs
+
+      - name: Verify the live feed
+        # Upload is only half of publishing: this reads the public URL back the
+        # way a client does. Manifests on this version, binaries behind them
+        # with the declared size, cache headers as intended, and nothing older
+        # still being served. A stale edge copy is retried, not excused.
+        env:
+          R2_BUCKET: riotswitcher-updates
+        run: npm run verify:feed
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

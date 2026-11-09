@@ -2,6 +2,7 @@
 /**
  * Checks the release about to be published before it reaches the feed:
  *
+ *   0. the tag being released names the version in package.json,
  *   1. the pinned updater source still hashes to the lock file,
  *   2. the packaged app carries the live feed URL (the updater it ships is the
  *      one in this tree, not an older build),
@@ -13,7 +14,8 @@
  * release.yml runs this after packaging and before publishing, so a manifest
  * that names something the bucket will not have never gets uploaded.
  *
- *   node scripts/verify-release.mjs
+ *   node scripts/verify-release.mjs                  # local, no tag to check
+ *   node scripts/verify-release.mjs --tag v3.1.13    # what CI runs
  */
 
 import { createHash } from "node:crypto";
@@ -77,6 +79,22 @@ function parseLatestYml(text) {
 
 const current = version();
 const url = feedUrl();
+
+// 0. The tag names the release; package.json names the build. A mismatch would
+// publish one version under another version's name, and nothing downstream
+// would notice: both manifests would still agree with each other.
+const tagFlag = process.argv.indexOf("--tag");
+const tag = tagFlag === -1 ? process.env.RELEASE_TAG : process.argv[tagFlag + 1];
+if (tag) {
+  const expected = tag.replace(/^v/, "");
+  check(
+    expected === current,
+    `tag ${tag} does not match package.json ${current}: the release would be named ${tag} but contain ${current}`,
+    `tag ${tag} matches package.json ${current}`,
+  );
+} else {
+  console.log("[verify-release] no tag given, skipped the tag/version check");
+}
 
 // 1. The updater code is the one CI pinned.
 try {

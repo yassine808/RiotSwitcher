@@ -2007,3 +2007,38 @@
   deletes nothing; prettier clean on the workflow and `package.json`.
 - Next: add `CLOUDFLARE_API_TOKEN`, dispatch `release.yml` for `v3.1.13`, then
   confirm the bucket holds only 3.1.13 and the manifests point at it.
+
+### 2026-11-09 - Phase 1: verify the release, publish it, read it back
+
+- Goal: split the updater into two phases and close phase 1 (tag -> build ->
+  check -> R2 -> prove it), so a publish is automated end to end.
+- Done:
+  - `PLAN.md`: phase 1 (publish) and phase 2 (consume) with a step table, the
+    decisions behind the feed, known limits, and the one open blocker.
+  - `scripts/lib/feed.mjs`: one place for the bucket name, the feed URL, version
+    ordering, the three object names a version owns, and the R2 listing call.
+  - `scripts/verify-release.mjs`: new tag/version check (`--tag` or
+    `RELEASE_TAG`); a release named `vX` must contain `package.json` version `X`.
+  - `scripts/verify-feed.mjs` (`npm run verify:feed`): after the upload, reads
+    the public URL like a client - both manifests report this version, binaries
+    answer 200 at the declared size, binaries are `immutable`, manifests are
+    `no-cache`, nothing outside the window is still served. Stale edge copies
+    are retried for up to a minute.
+  - `scripts/prune-feed.mjs`: lists the bucket through the R2 API when the token
+    is present, instead of guessing names from tags - `3.1.11`/`3.1.12` were
+    never tagged, so tag-based pruning would have left `3.1.12` behind.
+  - `release.yml`: passes `RELEASE_TAG` to the gate and runs `verify:feed` after
+    the upload and prune, before the artifact upload.
+  - `docs/UPDATES.md`: flow, verify table and the post-publish check.
+- Verified:
+  - `verify-release.mjs --tag v3.1.12` against 3.1.13 exits 1 with "tag v3.1.12
+    does not match package.json 3.1.13"; `--tag v3.1.13` raises no tag problem.
+  - `verify-feed.mjs --version 3.1.12` against the live bucket finds the four
+    missing cache headers on the objects uploaded before the header step; that
+    is the expected state and the 3.1.13 upload is what fixes it.
+  - `prune-feed.mjs --dry-run` keeps 3.1.13 and would delete the three 3.1.12
+    objects; prettier clean on the scripts, `package.json` and the workflows.
+  - Local `verify:release` still reports the manifests as 3.1.12 because
+    `release/` holds the previous build; CI rebuilds before it runs.
+- Next: `CLOUDFLARE_API_TOKEN`, then dispatch `release.yml` for `v3.1.13` and
+  watch `verify:feed` go green.
