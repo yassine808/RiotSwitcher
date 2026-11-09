@@ -137,16 +137,27 @@ VALORANT and carries on; cancelling leaves everything exactly as it was.
 
 ## Updating
 
-RiotSwitcher updates itself. On every start it asks the release feed for the
-newest version and compares it with the version you are running. If a newer one
-exists it downloads it in the background and applies it on its own: the
-installed build runs the new installer, the portable build replaces its own exe
-and reopens. While it stays open it checks again every four hours. There is also
-a **Check for updates** button in Settings.
+RiotSwitcher updates itself from a public Cloudflare bucket. Nothing to
+download by hand.
 
-The feed is a public Cloudflare R2 bucket, because release assets on a private
-GitHub repository need a token that neither build has. Bucket, manifests and
-the portable swap: [docs/UPDATES.md](docs/UPDATES.md).
+```mermaid
+flowchart LR
+  A["app starts"] --> B["asks the bucket<br/>for the newest version"]
+  B -->|newer| C["downloads it<br/>in the background"]
+  B -->|same| D["nothing happens"]
+  C --> E["restarts into it"]
+  E --> F["installed build:<br/>runs the new installer"]
+  E --> G["portable build:<br/>swaps its own .exe"]
+```
+
+It checks again every four hours, and **Settings → Updates → Check for
+updates** does it on demand. Progress is shown there while it downloads.
+
+![Settings window; the Updates tab is in the left column](docs/screenshots/settings.png)
+
+The bucket is public because release files on a private GitHub repository need
+a token that neither build has. Setup, manifests and the portable swap:
+[docs/UPDATES.md](docs/UPDATES.md).
 
 ---
 
