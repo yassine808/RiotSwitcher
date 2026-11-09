@@ -87,6 +87,74 @@ def _log(message):
         pass
 
 
+class _ProductLaunch:
+    """State for one product-launch watchdog run.
+
+    ``poll`` is called once per observation with fresh lockfile credentials.
+    It answers whether the game is up, and otherwise sends a launch request
+    when one is due. Keeping the counters here keeps the polling loop readable
+    and the timing rules in one place.
+    """
+
+    def __init__(self, product, patchline, started_at):
+        self.product = product
+        self.patchline = patchline
+        self.started_at = started_at
+        self.attempts = 0
+        self.last_attempt = 0.0
+        self.resolved = False
+        self.launching = False
+        self.status = 0
+
+    def elapsed(self, now):
+        return now - self.started_at
+
+    def poll(self, port, password, now):
+        """Observe once. True once the client reports the product session."""
+        if local_api.has_product(
+            port, password, self.product, self.patchline,
+            timeout=PRODUCT_LAUNCH_API_TIMEOUT_S,
+        ):
+            return True
+        # A 423 says the client is already starting the product; stop
+        # re-posting, but fall back to retrying if it never appears.
+        if self.launching and now - self.last_attempt >= PRODUCT_LAUNCH_RELOCK_S:
+            self.launching = False
+        if self._request_due(now):
+            self._ask(port, password, now)
+        return False
+
+    def _request_due(self, now):
+        if self.launching or self.attempts >= PRODUCT_LAUNCH_MAX_ATTEMPTS:
+            return False
+        return self.attempts == 0 or now - self.last_attempt >= PRODUCT_LAUNCH_RETRY_S
+
+    def _ask(self, port, password, now):
+        self.attempts += 1
+        self.last_attempt = now
+        self.status = local_api.launch_product_status(
+            port, password, self.product, self.patchline,
+            timeout=PRODUCT_LAUNCH_API_TIMEOUT_S,
+        )
+        _log(
+            f"watchdog: launch request {self.attempts} status={self.status} "
+            f"after {self.elapsed(now):.1f}s"
+        )
+        if 200 <= self.status < 300 or self.status == HTTP_LOCKED:
+            self.launching = True
+        if not self.resolved and self.status:
+            # The client answered, so its catalogue is readable.
+            self._resolve(port, password)
+
+    def _resolve(self, port, password):
+        self.product, self.patchline = local_api.resolve_product(
+            port, password, self.product, self.patchline,
+            timeout=PRODUCT_LAUNCH_API_TIMEOUT_S,
+        )
+        self.resolved = True
+        _log(f"watchdog: targeting {self.product}.{self.patchline}")
+
+
 def _reg_install_location(reg_key):
     """Query a registry InstallLocation value, returning "" when absent."""
     try:
@@ -360,56 +428,23 @@ class RiotClientManager:
         catalogue once the API answers; the requested pair is only the
         fallback while the client is still starting.
         """
-        deadline = time.monotonic() + PRODUCT_LAUNCH_TIMEOUT_S
         started_at = time.monotonic()
-        attempts = 0
-        last_attempt = 0.0
-        resolved = False
-        launching = False
-        status = 0
+        deadline = started_at + PRODUCT_LAUNCH_TIMEOUT_S
+        launch = _ProductLaunch(product, patchline, started_at)
         while time.monotonic() < deadline:
             credentials = local_api.read_credentials(client_pid=client_pid)
-            if credentials:
-                port, password = credentials
-                now = time.monotonic()
-                if local_api.has_product(
-                    port, password, product, patchline, timeout=PRODUCT_LAUNCH_API_TIMEOUT_S
-                ):
-                    if attempts:
-                        _log(
-                            f"watchdog: {product}.{patchline} is up after {attempts} "
-                            f"launch request(s), {now - started_at:.1f}s after spawn"
-                        )
-                    return
-                # A 423 says the client is already starting the product; stop
-                # re-posting, but fall back to retrying if it never appears.
-                if launching and now - last_attempt >= PRODUCT_LAUNCH_RELOCK_S:
-                    launching = False
-                if not launching and (attempts == 0 or now - last_attempt >= PRODUCT_LAUNCH_RETRY_S) \
-                        and attempts < PRODUCT_LAUNCH_MAX_ATTEMPTS:
-                    attempts += 1
-                    last_attempt = now
-                    status = local_api.launch_product_status(
-                        port, password, product, patchline, timeout=PRODUCT_LAUNCH_API_TIMEOUT_S
-                    )
+            if credentials and launch.poll(credentials[0], credentials[1], time.monotonic()):
+                if launch.attempts:
                     _log(
-                        f"watchdog: launch request {attempts} status={status} "
-                        f"after {now - started_at:.1f}s"
+                        f"watchdog: {launch.product}.{launch.patchline} is up after "
+                        f"{launch.attempts} launch request(s), "
+                        f"{launch.elapsed(time.monotonic()):.1f}s after spawn"
                     )
-                    if 200 <= status < 300 or status == HTTP_LOCKED:
-                        launching = True
-                    if not resolved and status:
-                        # The client answered, so its catalogue is readable.
-                        product, patchline = local_api.resolve_product(
-                            port, password, product, patchline,
-                            timeout=PRODUCT_LAUNCH_API_TIMEOUT_S,
-                        )
-                        resolved = True
-                        _log(f"watchdog: targeting {product}.{patchline}")
+                return
             time.sleep(PRODUCT_LAUNCH_POLL_S)
         _log(
-            f"watchdog: gave up on {product}.{patchline} after {attempts} "
-            f"launch request(s), last status={status}"
+            f"watchdog: gave up on {launch.product}.{launch.patchline} after "
+            f"{launch.attempts} launch request(s), last status={launch.status}"
         )
 
     def is_running(self):
