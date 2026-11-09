@@ -44,11 +44,16 @@
 (() => {
   const iq = document.getElementById("iq"), yes = document.getElementById("yes"), intro = document.getElementById("intro");
   if (!iq) return;
-  "Are you tired from switching Valorant accounts?".split(" ").forEach((t, k) => { const s = document.createElement("span"); s.className = "w"; s.textContent = t; s.style.transitionDelay = 400 + k * 160 + "ms"; iq.appendChild(s); });
-  setTimeout(() => { iq.classList.add("in"); yes.classList.add("show"); }, 100);
+  "Are you tired of switching Valorant accounts?".split(" ").forEach((t, k) => { const s = document.createElement("span"); s.className = "w"; s.textContent = t; s.style.transitionDelay = 500 + k * 220 + "ms"; iq.appendChild(s); });
+  setTimeout(() => { iq.classList.add("in"); yes.classList.add("show"); }, 150);
+  let busy = false;
   yes.addEventListener("click", () => {
+    if (busy) return; busy = true;
     window.dispatchEvent(new Event("rs-interact"));
-    intro.classList.add("done"); document.body.classList.remove("intro-on");
-    setTimeout(() => intro.remove(), 1600);
+    intro.classList.add("go");                                             // text fades, white line draws
+    setTimeout(() => intro.classList.add("open"), 1000);                   // the black halves part
+    setTimeout(() => document.body.classList.remove("intro-on"), 1150);
+    setTimeout(() => document.body.classList.add("entered"), 1150);        // site elements arrive one by one
+    setTimeout(() => intro.remove(), 3000);
   });
 })();
