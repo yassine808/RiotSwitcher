@@ -14,7 +14,9 @@ import json
 import os
 import subprocess
 import threading
+import time
 
+import riot_local_api as local_api
 import riot_processes as rp
 
 CLIENT_EXE = "RiotClientServices.exe"
@@ -23,9 +25,20 @@ CLIENT_EXE = "RiotClientServices.exe"
 LAUNCH_PRODUCT_RIOT = "riot"       # Riot client only, no game auto-launch.
 LAUNCH_PRODUCT_VALORANT = "valorant"  # Auto-launch VALORANT after the client.
 DEFAULT_LAUNCH_PRODUCT = LAUNCH_PRODUCT_VALORANT
+LAUNCH_PATCHLINE = "live"
 
 # Static flags always passed to the client.
-BASE_LAUNCH_ARGS = ["--launch-patchline=live"]
+BASE_LAUNCH_ARGS = [f"--launch-patchline={LAUNCH_PATCHLINE}"]
+
+# Riot treats --launch-product as a hint: it reaches the product page and then
+# sometimes never presses Play (seen in the client log: the VALORANT page loads,
+# no "product-launcher: Launch starting" follows). Give that request a grace
+# window, then ask the client's own product launcher to start the game.
+PRODUCT_LAUNCH_GRACE_S = 30.0
+PRODUCT_LAUNCH_RETRY_S = 20.0
+PRODUCT_LAUNCH_MAX_ATTEMPTS = 3
+PRODUCT_LAUNCH_POLL_S = 1.0
+PRODUCT_LAUNCH_TIMEOUT_S = 150.0
 
 # Riot's canonical install manifest and metadata YAML.
 RIOT_INSTALLS_JSON = r"C:/ProgramData/Riot Games/RiotClientInstalls.json"
@@ -241,25 +254,70 @@ class RiotClientManager:
         args.insert(0, f"--launch-product={product}")
         return args
 
-    def launch_client(self):
+    def launch_client(self, confirm_product=False):
         """Spawn the Riot Client with the configured launch arguments.
 
         The client location is auto-detected if not yet configured. Returns the
         PID on success. Raises RiotClientError if the client cannot be located
         or fails to spawn.
+
+        ``confirm_product`` enables the launch watchdog described below. Profile
+        launches set it; the Add Account flow does not, because opening the game
+        while the user is expected to sign in would interrupt the flow.
         """
         exe = self.ensure_location()
         client_path = os.path.join(exe, self._client_exe)
         if not os.path.isfile(client_path):
             raise RiotClientError(f"{self._client_exe} not found in the selected folder")
+        product = self.get_launch_product()
         try:
             proc = subprocess.Popen(
                 [client_path] + self.build_launch_args(),
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError as exc:
             raise RiotClientError(f"Failed to launch Riot Client: {exc}") from exc
+        if confirm_product and product == LAUNCH_PRODUCT_VALORANT:
+            threading.Thread(
+                target=self._confirm_product_launch,
+                args=(product, LAUNCH_PATCHLINE),
+                daemon=True,
+            ).start()
         return proc.pid
+
+    def _confirm_product_launch(self, product, patchline):
+        """Start the product when Riot's own auto-launch request was dropped.
+
+        Runs on a daemon thread so the launch request returns as soon as the
+        client is spawned: the game can take 15-40 s to appear, and the UI must
+        not wait for that. Polls the client's local API, which reports the real
+        product session (``productId``/``patchlineId``) - more reliable than
+        guessing from the process table. If no session exists after the grace
+        window, the product launcher endpoint is called, at most a few times.
+        """
+        deadline = time.monotonic() + PRODUCT_LAUNCH_TIMEOUT_S
+        credentials = None
+        ready_at = None
+        attempts = 0
+        last_attempt = 0.0
+        while time.monotonic() < deadline:
+            credentials = credentials or local_api.read_credentials()
+            if credentials:
+                port, password = credentials
+                if local_api.has_product(port, password, product, patchline):
+                    return
+                now = time.monotonic()
+                if ready_at is None:
+                    ready_at = now
+                if attempts == 0:
+                    due = now - ready_at >= PRODUCT_LAUNCH_GRACE_S
+                else:
+                    due = now - last_attempt >= PRODUCT_LAUNCH_RETRY_S
+                if due and attempts < PRODUCT_LAUNCH_MAX_ATTEMPTS:
+                    attempts += 1
+                    last_attempt = now
+                    local_api.launch_product(port, password, product, patchline)
+            time.sleep(PRODUCT_LAUNCH_POLL_S)
 
     def is_running(self):
         """True while any known Riot process is running."""

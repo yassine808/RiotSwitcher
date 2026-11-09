@@ -126,7 +126,10 @@ class LaunchOrchestrator:
         """Launch the Riot Client. Returns result dict."""
         self._emit("launch", "started", "Launching Riot Client")
         self.config.set("LastRunningProfile", profile_name)
-        pid = self.riot.launch_client()
+        # A profile launch is expected to end in the game when LaunchProduct is
+        # VALORANT, so confirm the product actually started (Riot drops its own
+        # auto-launch request now and then).
+        pid = self.riot.launch_client(confirm_product=True)
         self._emit("launch", "done", "Riot Client launched", pid=pid)
         return {"ok": True, "pid": pid, "profile": profile_name}
 

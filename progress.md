@@ -1701,3 +1701,31 @@
   now is); that job is pinned to `ubuntu-22.04`.
 - Next: confirm `gh release view v3.1.6` reports the three assets, then watch a
   real 3.1.5 install pick it up through the updater.
+
+### 2026-11-09 - Confirm the VALORANT launch instead of trusting Riot's flag
+
+- Goal: close the last To-DO item ("app only launches riot, it doesn't launch
+  valorant at all" with LaunchProduct = VALORANT).
+- Finding: the setting was already wired correctly. `build_launch_args()` reads
+  `LaunchProduct` at launch time and the client logs for 01:50 and 01:55 show
+  `--launch-product=valorant` followed by
+  `product-launcher: Launch starting: productId='valorant'`. But the 01:42 log
+  reaches the VALORANT product page with no launch line: Riot treats
+  `--launch-product` as best-effort and sometimes drops the Play request. That
+  is the intermittent "only the Riot Client opened" case.
+- Done:
+  - New `src/backend/riot_local_api.py`: reads Riot's `Config/lockfile` and
+    talks to the loopback API (`/product-session/v1/sessions`,
+    `/product-launcher/v1/products/<product>/patchlines/<patchline>`).
+  - `RiotClientManager.launch_client(confirm_product=True)` starts a daemon
+    watchdog for profile launches. It waits 30 s for a VALORANT session, then
+    asks the product launcher to start it (up to 3 attempts, 20 s apart,
+    150 s cap). Add Account keeps the old behaviour (`confirm_product=False`)
+    so the game does not open under the sign-in flow.
+  - `LaunchOrchestrator._launch_client` passes `confirm_product=True`.
+- Verified: `read_credentials()` + `has_product()` against the live client
+  report the running VALORANT session (`valorant`/`live`), read-only; 209
+  pytest tests pass (24 new: args, watchdog, Add Account exclusion, lockfile,
+  API calls, request auth); ruff, typecheck and eslint clean.
+- Next: rebuild the PyInstaller backend so the installed app carries the
+  watchdog, then decide whether this ships as 3.1.7.
