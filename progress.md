@@ -1676,3 +1676,25 @@
   That fallback is harmless; the GitHub feed uses port 443.
 - Cleanup: feed, patched config backup and `riotswitcher-test-updater` cache
   removed; feed server stopped.
+
+### 2026-11-09 - Cut 3.1.6 so the Add Account fix can actually ship
+
+- Goal: the fix was installed only locally while GitHub still served the old
+  3.1.5, which the updater can never replace (same version). Bump, publish and
+  point the desktop at the auto-updating installed build.
+- Done:
+  - `package.json` / `package-lock.json` -> 3.1.6.
+  - Built `RiotSwitcher-Setup-3.1.6.exe` (140,393,476 B) and
+    `RiotSwitcher-3.1.6-portable.exe` (126,758,701 B); `latest.yml` now points
+    at `RiotSwitcher-Setup-3.1.6.exe` with its sha512.
+  - Installed the 3.1.6 setup over 3.1.5 locally and relaunched from
+    `%LOCALAPPDATA%\Programs\RiotSwitcher`.
+  - Desktop: removed the stale `RiotSwitcher-3.1.5-portable.exe - Shortcut`;
+    `RiotSwitcher.lnk` targets the installed exe, so it follows auto-updates.
+  - Tagged `v3.1.6` and pushed `main` + the tag; the release workflow builds
+    and publishes the installer, portable exe and `latest.yml`.
+- Verified: typecheck, eslint, vitest 96/96, pytest 185, ruff clean; installer
+  exit 0; installed `app.asar` SHA-256 equals `release/win-unpacked`
+  (`BC0B08E3...`); `RiotSwitcher.exe` FileVersion 3.1.6; app relaunched.
+- Next: confirm `gh release view v3.1.6` reports the three assets, then watch a
+  real 3.1.5 install pick it up through the updater.
