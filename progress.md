@@ -2068,3 +2068,26 @@
 - Next: install 3.1.15 by hand once, then live-test the portable swap and the
   NSIS update. Both need RiotSwitcher closed, so they wait until VALORANT is not
   running.
+
+### 2026-11-09 - Restore the update address 3.1.8 clients ask for
+
+- Goal: 3.1.8 installs check `github.com/yassine808/assist`, which went private
+  and answered 404, so their update check failed every time.
+- Done:
+  - Renamed the private repository to `yassine808/assist-private`; the local
+    `origin` now points there (the old URL belongs to the new public repo, so
+    leaving it would have pushed the source into a public repository).
+  - Created public `yassine808/assist` with a README and a `v3.1.8` release
+    holding `latest.yml`, `RiotSwitcher-Setup-3.1.8.exe` and its blockmap - no
+    portable.
+  - `electron-builder.yml`: publish target is now `assist-private`.
+- Verified:
+  - `releases.atom` 200, `releases/download/v3.1.8/latest.yml` 200, the setup exe
+    200.
+  - Walking the provider path (atom -> newest release -> latest.yml) reports
+    version 3.1.8, so a 3.1.8 client now says "up to date" instead of failing
+    with 404.
+  - The private repository still serves its releases (`v3.1.15` latest).
+- Next: a 3.1.8 client is now quiet but does not move forward - that needs a
+  release newer than 3.1.8 in the public repository. Decide whether to add one
+  (3.1.15 setup only) as a bridge.

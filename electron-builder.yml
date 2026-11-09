@@ -5,7 +5,10 @@ copyright: Copyright © 2026 RiotSwitcher Contributors
 publish:
   provider: github
   owner: yassine808
-  repo: assist
+  # Releases are published from the private repository; the runtime feed is
+  # overridden by setFeedURL anyway. The public yassine808/assist only carries
+  # the 3.1.8 installer for clients that predate the R2 feed.
+  repo: assist-private
 
 directories:
   output: release

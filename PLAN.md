@@ -109,6 +109,12 @@ times, at every start:
 Nothing published can reach a client that does not know the feed exists, so
 3.1.10 → 3.1.15 is one manual install. Every release after that updates itself.
 
+The address those old clients ask for is now a public repository:
+`yassine808/assist` carries a `v3.1.8` release (installer + `latest.yml`, no
+portable), so a 3.1.8 install stops failing with 404. It still reports "up to
+date" — moving those installs forward needs a release **newer than 3.1.8** in
+that repository.
+
 ## Decisions already made
 
 | Decision | Why |
