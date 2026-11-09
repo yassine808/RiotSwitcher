@@ -195,7 +195,10 @@ export function swapScript(exe: string, next: string): string {
     'move /y "%NEW%" "%EXE%" >nul 2>&1',
     'if not exist "%EXE%" goto giveup',
     "ping -n 3 127.0.0.1 >nul",
-    'start "" "%EXE%"',
+    // Through explorer, not `start`: the updater spawns this script hidden, and
+    // `start` passes that hidden show state on, so the app would come back with
+    // no window. explorer always starts it normally.
+    'start "" explorer.exe "%EXE%"',
     "ping -n 3 127.0.0.1 >nul",
     'del "%EXE%.old" >nul 2>&1',
     // A batch file cannot delete itself and still exit cleanly: cmd drops the
@@ -206,7 +209,7 @@ export function swapScript(exe: string, next: string): string {
     'move /y "%EXE%.old" "%EXE%" >nul 2>&1',
     `> "%EXE%.update-failed" echo Could not replace the portable exe: it stayed locked for about two minutes.`,
     "ping -n 3 127.0.0.1 >nul",
-    'start "" "%EXE%"',
+    'start "" explorer.exe "%EXE%"',
     "ping -n 3 127.0.0.1 >nul",
     'start /b cmd /c "ping -n 5 127.0.0.1 >nul & del ""%~f0"""',
     "exit /b 1",

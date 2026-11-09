@@ -3,6 +3,6 @@
   "files": {
     "src/main/updater.ts": "da994570133acfa4dc53f153d300efdc3959e21dd60163c447e3b7e02ce910c1",
     "src/main/updateFeed.ts": "ba90f29a20701a398fc89139a324a1058451261ebb983f571ef457b97bfa49e5",
-    "src/main/portableUpdate.ts": "68e7dd9a44e2eb39932113d8b22e8867c7153895f6ef3cff096b5e2095e191b5"
+    "src/main/portableUpdate.ts": "fed9a1c91c15f8dcbdc584d341435534afbc4595b8faa24ad39e490d6ce9d0c8"
   }
 }

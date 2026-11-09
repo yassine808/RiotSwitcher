@@ -75,4 +75,10 @@ describe("portable swap script", () => {
   it("hands its own removal to a helper", () => {
     expect(swapScript("C:\\a\\app.exe", "C:\\a\\app.exe.new")).toContain('del ""%~f0"""');
   });
+
+  // The script is spawned hidden, and `start` passes that show state on, so a
+  // bare `start "" "%EXE%"` brings the app back with no window.
+  it("relaunches the app through explorer", () => {
+    expect(swapScript("C:\\a\\app.exe", "C:\\a\\app.exe.new")).toContain('start "" explorer.exe "%EXE%"');
+  });
 });
