@@ -37,7 +37,7 @@ jobs:
     name: Repoint the feed
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the version can be used
         # Everything that can be wrong is checked before the feed is touched:
