@@ -93,9 +93,7 @@ describe("AddAccountModal detection lifecycle", () => {
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     });
 
-    await waitFor(() =>
-      expect(callMock.mock.calls.filter(([m]) => m === "start_account_detection")).toHaveLength(2)
-    );
+    await waitFor(() => expect(callMock.mock.calls.filter(([m]) => m === "start_account_detection")).toHaveLength(2));
   });
 
   it("clears the finished run so reopening starts a new attempt", async () => {
@@ -127,8 +125,6 @@ describe("AddAccountModal detection lifecycle", () => {
     expect(await screen.findByText("Checking for a signed-in account…")).toBeDefined();
     expect(screen.queryByText("Account added")).toBeNull();
 
-    await waitFor(() =>
-      expect(callMock.mock.calls.filter(([m]) => m === "start_account_detection")).toHaveLength(2)
-    );
+    await waitFor(() => expect(callMock.mock.calls.filter(([m]) => m === "start_account_detection")).toHaveLength(2));
   });
 });

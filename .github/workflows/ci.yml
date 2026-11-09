@@ -117,7 +117,10 @@ jobs:
 
   python:
     name: Python Lint & Tests
-    runs-on: ubuntu-latest
+    # Python 3.9 is the app's floor and no longer has builds for
+    # ubuntu-26.04 (what ubuntu-latest now resolves to). Pin the last LTS
+    # image that still ships 3.9 so setup-python can find it.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

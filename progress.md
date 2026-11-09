@@ -1696,5 +1696,8 @@
 - Verified: typecheck, eslint, vitest 96/96, pytest 185, ruff clean; installer
   exit 0; installed `app.asar` SHA-256 equals `release/win-unpacked`
   (`BC0B08E3...`); `RiotSwitcher.exe` FileVersion 3.1.6; app relaunched.
+- CI follow-up: the tagged test file failed Prettier (fixed and pushed), and
+  the Python job could not find 3.9 on `ubuntu-26.04` (what `ubuntu-latest`
+  now is); that job is pinned to `ubuntu-22.04`.
 - Next: confirm `gh release view v3.1.6` reports the three assets, then watch a
   real 3.1.5 install pick it up through the updater.
