@@ -1656,3 +1656,23 @@
   over the old build (installer exit 0); the installed `app.asar` SHA-256
   equals `release/win-unpacked` (`84A70D22...`), and the app was relaunched.
 - Next: confirm the Add Account flow on the live login (user-driven step).
+
+### 2026-11-09 - Auto-update verified on the installed 3.1.5
+
+- Goal: answer "does auto-update work on the last version" with a fake 3.1.6.
+- Done: served a generic feed on `127.0.0.1:8124` with the 3.1.5 setup renamed
+  to `RiotSwitcher-Setup-3.1.6.exe`, a matching blockmap and a `latest.yml`
+  carrying its sha512/size; pointed the installed `app-update.yml` at it and
+  restarted the installed app.
+- Verified in `%APPDATA%\riotswitcher\logs\main.log`: `Found version 3.1.6` ->
+  `New version 3.1.6 has been downloaded` -> `isSilent: true,
+  isForceRunAfter: true` -> `Executing ... --updated,/S,--force-run`, then the
+  app relaunched from `%LOCALAPPDATA%\Programs\RiotSwitcher` at 02:14:11.
+  The installer restored the GitHub `app-update.yml`; the next check reports
+  3.1.5 as latest, so the local feed cannot loop. Installed `app.asar` still
+  hashes to the fixed build (`84A70D22...`).
+- Note: the differential path 404'd on the old blockmap (the local URL lost its
+  port) and fell back to the full download, which hash-verified and installed.
+  That fallback is harmless; the GitHub feed uses port 443.
+- Cleanup: feed, patched config backup and `riotswitcher-test-updater` cache
+  removed; feed server stopped.
