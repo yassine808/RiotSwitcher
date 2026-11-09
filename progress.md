@@ -1859,4 +1859,16 @@
 - Next: nothing to fix in the app path; the remaining wait is the Riot Client
   booting, during which its API is not listening.
 
+### 2026-11-09 - Local 3.1.10 build for a UI test
+
+- Goal: hand Yassine an installed build he can exercise himself by clicking a
+  profile, without publishing anything.
+- Done: `package.json` / `package-lock.json` -> 3.1.10; `npm run dist` produces
+  the installer and portable locally. No tag, no push.
+- Verified: `RiotSwitcher-Setup-3.1.10.exe` exists; installed over 3.1.9
+  (exit 0); installed version 3.1.10; app relaunched; VALORANT and the Riot
+  Client closed beforehand so the first profile click can switch.
+- Next: Yassine clicks a profile; `main.log` should show
+  `watchdog: launch request 1 status=...` about 1.5 s after the client pid.
+
 
