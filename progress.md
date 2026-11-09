@@ -2091,3 +2091,23 @@
 - Next: a 3.1.8 client is now quiet but does not move forward - that needs a
   release newer than 3.1.8 in the public repository. Decide whether to add one
   (3.1.15 setup only) as a bridge.
+
+### 2026-11-09 - Rename the project folder to match the repository
+
+- Goal: the repository is `assist-private`; the local folder was still
+  `D:\Projects\Assist`.
+- Done:
+  - Renamed `D:\Projects\Assist` to `D:\Projects\assist-private`. The blocker
+    was one VS Code window (`Assist`, pid 1068): its three language servers
+    (7896, 9644, 32536) and three terminals (11128, 25104, 25568) held the
+    folder as their working directory.
+  - `src/main/shortcuts.test.ts`: the three hardcoded `D:\Projects\Assist`
+    literals now point at `assist-private`.
+  - `.vscode/settings.json` (local, git-ignored): the cmake path follows the
+    new folder name. Its target folder does not exist under either name.
+- Verified:
+  - `D:\Projects\assist-private` exists, `git status` clean, `origin` still
+    `https://github.com/yassine808/assist-private.git`.
+  - `npx vitest run src/main/shortcuts.test.ts` -> 9 passed.
+- Next: nothing. The only stale path left is `release/builder-debug.yml`, a
+  build artifact that regenerates on the next `npm run dist`.
