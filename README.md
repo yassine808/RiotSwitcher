@@ -137,27 +137,24 @@ VALORANT and carries on; cancelling leaves everything exactly as it was.
 
 ## Updating
 
-RiotSwitcher updates itself from a public Cloudflare bucket. Nothing to
-download by hand.
-
-```mermaid
-flowchart LR
-  A["app starts"] --> B["asks the bucket<br/>for the newest version"]
-  B -->|newer| C["downloads it<br/>in the background"]
-  B -->|same| D["nothing happens"]
-  C --> E["restarts into it"]
-  E --> F["installed build:<br/>runs the new installer"]
-  E --> G["portable build:<br/>swaps its own .exe"]
-```
-
-It checks again every four hours, and **Settings → Updates → Check for
-updates** does it on demand. Progress is shown there while it downloads.
-
 ![Settings window; the Updates tab is in the left column](docs/screenshots/settings.png)
 
-The bucket is public because release files on a private GitHub repository need
-a token that neither build has. Setup, manifests and the portable swap:
-[docs/UPDATES.md](docs/UPDATES.md).
+```mermaid
+flowchart TD
+  CI["🚀 new release"] -->|upload| CF["☁️ Cloudflare R2<br/>latest.yml · latest.json"]
+
+  subgraph INSTALLED["🖥️ installed app"]
+    I1["sees latest.yml"] --> I2["downloads setup.exe"] --> I3["runs it silently"] --> I4["reopens on the new version"]
+  end
+
+  subgraph PORTABLE["📦 portable app"]
+    P1["sees latest.json"] --> P2["downloads portable.exe"] --> P3["checks sha256"] --> P4["swaps its own .exe"] --> P5["reopens on the new version"]
+  end
+
+  CF -->|latest.yml| I1
+  CF -->|latest.json| P1
+```
+
 
 ---
 
