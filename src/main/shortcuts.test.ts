@@ -11,7 +11,7 @@ const { writeShortcutLink, desktop } = vi.hoisted(() => ({
 vi.mock("electron", () => ({
   app: {
     isPackaged: false,
-    getAppPath: () => "D:\\Projects\\assist-private",
+    getAppPath: () => "D:\\Projects\\riotswitcher",
     getPath: () => desktop,
   },
   shell: { writeShortcutLink },
@@ -55,7 +55,7 @@ describe("profile desktop shortcuts", () => {
   });
 
   it("passes the app path as well as the profile when running from source", () => {
-    expect(profileLaunchArgs("Main")).toEqual(["D:\\Projects\\assist-private", "--profile", "Main"]);
+    expect(profileLaunchArgs("Main")).toEqual(["D:\\Projects\\riotswitcher", "--profile", "Main"]);
   });
 
   it("reads both --profile forms from argv", () => {
@@ -76,7 +76,7 @@ describe("profile desktop shortcuts", () => {
       "create",
       expect.objectContaining({
         target: process.execPath,
-        args: 'D:\\Projects\\assist-private --profile "Main Account"',
+        args: 'D:\\Projects\\riotswitcher --profile "Main Account"',
         description: "Launch Main Account with RiotSwitcher",
       }),
     );

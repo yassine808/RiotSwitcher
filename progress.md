@@ -2111,3 +2111,23 @@
   - `npx vitest run src/main/shortcuts.test.ts` -> 9 passed.
 - Next: nothing. The only stale path left is `release/builder-debug.yml`, a
   build artifact that regenerates on the next `npm run dist`.
+
+### 2026-11-09 - Rename the repository and the folder to riotswitcher
+
+- Goal: `assist` was the old product name; the source repository should carry
+  the product name.
+- Done:
+  - GitHub: `yassine808/assist-private` to `yassine808/riotswitcher`, still
+    private. The old name redirects, so nothing that still points at it breaks.
+  - Local folder `D:\Projects\assist-private` to `D:\Projects\riotswitcher`;
+    `origin` follows.
+  - `electron-builder.yml`: publish target is now `repo: riotswitcher`.
+  - `src/main/shortcuts.test.ts`: the three fixture paths follow the folder.
+  - `.vscode/settings.json` (local, git-ignored): the cmake path follows it too.
+- Verified:
+  - `gh repo view yassine808/assist-private` resolves to `riotswitcher`;
+    `origin` is `https://github.com/yassine808/riotswitcher.git`.
+  - `npx vitest run src/main/shortcuts.test.ts` -> 9 passed; prettier clean.
+- Next: the public repository stays `yassine808/assist` on purpose - installed
+  3.1.8 builds have that URL compiled into `app-update.yml`, so renaming it
+  would strand them again.
