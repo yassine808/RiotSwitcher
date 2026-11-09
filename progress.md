@@ -1809,4 +1809,20 @@
   with version 3.1.8 and the setup sha512.
 - Next: exercise the updater with a 3.1.9 build; 3.1.8 cannot update itself.
 
+### 2026-11-09 - Restore the card tuner for Reyna only
+
+- Goal: reopen the deleted `.html` placement tuner with one playercard, without
+  reading anything from the game install.
+- Done: restored `tools/cards/tuner/` (`index.html`, `server.py`, `prepare.py`)
+  and `_tuner/src/Reyna/` (`base.png`, `sheet.png`, `sheet-tile.png`) from
+  `9e8100d^`; wrote `_tuner/cards.json` and `placement.json` filtered to Reyna;
+  `index.html` now accepts any non-empty card list instead of exactly 30.
+  `prepare.py` (the only script that reads game files) was restored but not run.
+- Verified: `python tools/cards/tuner/server.py` serves
+  `http://127.0.0.1:8787/`; `/api/cards` -> 1 card (Reyna, 16 frames), the three
+  `tuner-src/Reyna/*` requests -> 200, and the browser loaded the page and both
+  source images (server log).
+- Next: none; saving writes `Animated/Reyna_Mastery_Card_animated.apng`, while
+  the app still prefers the shipped `.webp`.
+
 
