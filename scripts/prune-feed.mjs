@@ -10,13 +10,14 @@
  *   RiotSwitcher-<version>-portable.exe
  *
  * Versions are collected from the git tags (every CI release is a tag), from
- * the files in release/ (a local publish), and from --version. The newest
- * three are kept by default, so a bad release can be undone by repointing the
- * manifests at the version before it. Objects named for the current version
- * and both manifests are never touched.
+ * the files in release/ (a local publish), and from --version. Only the
+ * current version is kept by default, so the bucket carries one release;
+ * `--keep N` widens the window when older builds should stay around for a
+ * rollback. Objects named for the current version and both manifests are never
+ * touched.
  *
- *   node scripts/prune-feed.mjs                    # keep the newest 3
- *   node scripts/prune-feed.mjs --keep 1           # keep the current one only
+ *   node scripts/prune-feed.mjs                    # keep the current version only
+ *   node scripts/prune-feed.mjs --keep 3           # keep room to roll back
  *   node scripts/prune-feed.mjs --dry-run          # list what would go
  *   node scripts/prune-feed.mjs --version 3.1.11   # also prune an untagged build
  *
@@ -35,10 +36,10 @@ const RELEASE_DIR = join(ROOT, "release");
 
 const BUCKET = process.env.R2_BUCKET || "riotswitcher-updates";
 const KEEP_NAMES = new Set(["latest.yml", "latest.json"]);
-// The bucket holds the newest few versions, not just the current one: with the
-// previous binaries still there, a bad release is undone by putting the older
-// manifests back instead of rebuilding and republishing it.
-const DEFAULT_KEEP = 3;
+// One release in the bucket by default. Raise it (or pass --keep) when the
+// previous builds should stay around: with them there, a bad release is undone
+// by putting the older manifests back instead of rebuilding it.
+const DEFAULT_KEEP = 1;
 
 function fail(message) {
   console.error(`[feed-prune] ${message}`);

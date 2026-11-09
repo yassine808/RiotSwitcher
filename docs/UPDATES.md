@@ -55,16 +55,13 @@ riotswitcher-updates/
 ├── latest.json                             portable manifest (scripts/make-update-manifest.mjs)
 ├── RiotSwitcher-Setup-3.1.12.exe
 ├── RiotSwitcher-Setup-3.1.12.exe.blockmap
-├── RiotSwitcher-3.1.12-portable.exe
-├── RiotSwitcher-Setup-3.1.11.exe           previous releases, for rollback
-├── RiotSwitcher-Setup-3.1.11.exe.blockmap
-├── RiotSwitcher-3.1.11-portable.exe
-└── …                                       newest three versions at most
+└── RiotSwitcher-3.1.12-portable.exe
 ```
 
-The newest three versions stay, so a release that turns out to be bad can be
-withdrawn without rebuilding it (see §7). After each publish,
-`scripts/prune-feed.mjs` deletes the objects of every version older than that.
+Only the current version stays. `latest.yml`, `latest.json` and that one
+version's three files are everything the bucket holds: after a publish,
+`scripts/prune-feed.mjs` deletes every other version's objects. `--keep N`
+widens the window when older builds should stay available for a rollback (§7).
 
 `latest.yml` is written by electron-builder for the installer. `latest.json`
 is written after packaging for the portable build, which has no YAML parser:
@@ -93,8 +90,8 @@ flowchart TD
   VERIFY --> MAN["make-update-manifest.mjs<br/>release/latest.json"]
   MAN --> GH["GitHub release (private)<br/>Setup exe, blockmap, latest.yml, latest.json"]
   MAN --> R2["wrangler r2 object put --remote<br/>binaries immutable, then manifests no-cache"]
-  R2 --> PRUNE["prune-feed.mjs<br/>keep the newest 3 versions"]
-  PRUNE --> FEED["feed<br/>two manifests + newest 3 versions"]
+  R2 --> PRUNE["prune-feed.mjs<br/>keep the current version"]
+  PRUNE --> FEED["feed<br/>two manifests + one version"]
 ```
 
 `release.yml` uploads in that order on purpose: a client must never read a
@@ -232,8 +229,11 @@ reporting `3.1.12`.
 
 ## 7. Withdrawing a bad release
 
-The newest three versions stay in the bucket for this. Repointing the manifests
-at the previous version stops anyone new from installing the bad one — no
+This needs the target version's binaries to still be in the bucket, and by
+default only the current version stays. Widen the window first with
+`node scripts/prune-feed.mjs --keep 3` (or `R2_KEEP_VERSIONS=3`) and keep it
+there for the releases you may want to undo. Repointing the manifests at the
+previous version then stops anyone new from installing the bad one — no
 rebuild, no re-upload.
 
 ### From the Actions tab
@@ -291,9 +291,9 @@ bad one still needs a higher version number published normally.
 - Never upload a manifest before its binary.
 - `npm run verify:release` must pass before a release is published: it is the
   only check that looks at the packaged app and both manifests together.
-- The bucket carries the newest three versions. `scripts/prune-feed.mjs`
-  deletes everything older after the new manifests are live, never before;
-  `--keep 1` restores the one-version behaviour.
+- The bucket carries one version. `scripts/prune-feed.mjs` deletes every other
+  version's objects after the new manifests are live, never before; `--keep N`
+  widens the window when a rollback should stay possible.
 - Binaries are published `immutable`, so a name must never change its bytes:
   the portable downloads by name, and a changed file under an old name would
   leave copies on different builds. Rebuild as a new version instead.

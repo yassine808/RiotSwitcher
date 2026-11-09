@@ -1990,3 +1990,20 @@
   `src/main/updater.ts` exits 1 naming the file; prettier clean on the script
   and the workflow.
 - Next: unchanged - add the Cloudflare secrets, then tag v3.1.13.
+
+### 2026-11-09 - Keep the feed on the latest version for now
+
+- Goal: leave the bucket carrying only the current release; the three-version
+  rollback window is deferred but stays one flag away.
+- Done:
+  - `DEFAULT_KEEP` in `scripts/prune-feed.mjs` back to 1; `--keep N` and
+    `R2_KEEP_VERSIONS` still widen the window.
+  - README, `docs/UPDATES.md` (§2 object list, §3 diagram, §7 withdrawal, §8
+    rules) and the `release.yml` prune comment updated to match.
+  - `withdraw.yml` needs the target version to still be in the bucket, which its
+    first step already checks and reports.
+- Verified: default dry run keeps `3.1.13` and would delete the three `3.1.12`
+  objects (45 already absent); `--keep 3` keeps `3.1.11, 3.1.12, 3.1.13` and
+  deletes nothing; prettier clean on the workflow and `package.json`.
+- Next: add `CLOUDFLARE_API_TOKEN`, dispatch `release.yml` for `v3.1.13`, then
+  confirm the bucket holds only 3.1.13 and the manifests point at it.
