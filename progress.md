@@ -1797,4 +1797,16 @@
 - Next: close VALORANT, launch a profile, and check `main.log` for
   `[watchdog] launch request 1 accepted=True`.
 
+### 2026-11-09 - Publish 3.1.8
+
+- Goal: put the 3.1.8 fix on GitHub so the in-app updater can reach it.
+- Done: annotated tag `v3.1.8` on `23acf30`; pushed `main` and the tag. CI
+  (42557080485) and Release (42557088525) both ran from that push.
+- Verified: Release run 42557088525 -> success; release `v3.1.8` is published
+  (not draft) with `latest.yml`, `RiotSwitcher-Setup-3.1.8.exe` (139,417,723 B),
+  `RiotSwitcher-Setup-3.1.8.exe.blockmap`, `RiotSwitcher-3.1.8-portable.exe`;
+  `releases/latest` -> `tag_name = v3.1.8`; the release `latest.yml` is served
+  with version 3.1.8 and the setup sha512.
+- Next: exercise the updater with a 3.1.9 build; 3.1.8 cannot update itself.
+
 
