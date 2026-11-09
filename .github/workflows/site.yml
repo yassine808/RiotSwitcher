@@ -1,0 +1,45 @@
+name: Site
+
+# Deploy Website/ to Cloudflare Pages on every push that touches it.
+# The project is a direct-upload Pages project, so there is no dashboard
+# build hook: this job is the build hook.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Website/**"
+      - ".github/workflows/site.yml"
+  # Run it by hand from the Actions tab when a deploy was missed.
+  workflow_dispatch:
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the job only reads the repo and talks to Cloudflare.
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  deploy:
+    name: Deploy Website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # Same pin as release.yml, so CI and a local deploy use one wrangler.
+      - run: npm install -g wrangler@4
+      # Run from inside Website and deploy ".": wrangler resolves functions/
+      # relative to the working directory, and `pages deploy Website` from the
+      # repo root silently drops the Functions bundle.
+      - name: Deploy to Cloudflare Pages
+        working-directory: Website
+        run: wrangler pages deploy . --project-name riotswitcher --branch main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
