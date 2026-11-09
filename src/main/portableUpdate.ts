@@ -19,11 +19,20 @@
  * `update:status` events so the renderer needs no changes.
  */
 
-import { BrowserWindow, app, net } from "electron";
+import { BrowserWindow, app, dialog, net } from "electron";
 import log from "electron-log";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
@@ -150,37 +159,57 @@ async function download(file: FeedFile, version: string): Promise<string> {
   return target;
 }
 
+// 120 tries, one ping apart: a couple of minutes for this process to release
+// the exe before the swap gives up and says so.
+const SWAP_TRIES = 120;
+
 /**
  * Batch script that performs the swap once this process is gone.
  *
- * `ping` is the delay: `timeout` refuses to run when stdin is redirected,
- * which it is for a detached silent process.
+ * The wait is the rename itself: Windows refuses the move while the exe is
+ * open, so retrying it is both the wait and the test. Nothing here may read
+ * stdin -- a detached silent script can inherit a stdin that never reaches
+ * EOF, which is what hung an earlier `tasklist | find` version of this loop.
+ * `ping` is the delay for the same reason `timeout` is unusable: it refuses to
+ * run when stdin is redirected.
+ *
+ * If the swap fails the old exe is started again with a marker file next to
+ * it, so the app can report the failure and close instead of silently running
+ * the old version.
  */
-function swapScript(exe: string, next: string, pid: number): string {
+export function swapScript(exe: string, next: string): string {
   return [
     "@echo off",
     "setlocal",
     `set "EXE=${exe}"`,
     `set "NEW=${next}"`,
-    `set "PID=${pid}"`,
-    ":wait_app",
-    'tasklist /FI "PID eq %PID%" /NH 2>nul | find "%PID%" >nul',
-    "if not errorlevel 1 (",
-    "  ping -n 2 127.0.0.1 >nul",
-    "  goto wait_app",
-    ")",
+    "set /a TRIES=0",
     ":rename",
     'move /y "%EXE%" "%EXE%.old" >nul 2>&1',
-    'if exist "%EXE%" (',
-    "  ping -n 2 127.0.0.1 >nul",
-    "  goto rename",
-    ")",
-    'move /y "%NEW%" "%EXE%" >nul',
+    'if not exist "%EXE%" goto swap',
+    "set /a TRIES+=1",
+    `if %TRIES% geq ${SWAP_TRIES} goto giveup`,
+    "ping -n 2 127.0.0.1 >nul",
+    "goto rename",
+    ":swap",
+    'move /y "%NEW%" "%EXE%" >nul 2>&1',
+    'if not exist "%EXE%" goto giveup',
     "ping -n 3 127.0.0.1 >nul",
     'start "" "%EXE%"',
     "ping -n 3 127.0.0.1 >nul",
     'del "%EXE%.old" >nul 2>&1',
-    'del "%~f0" >nul 2>&1',
+    // A batch file cannot delete itself and still exit cleanly: cmd drops the
+    // file handle and the exit status becomes 1. Hand the delete to a helper.
+    'start /b cmd /c "ping -n 5 127.0.0.1 >nul & del ""%~f0"""',
+    "exit /b 0",
+    ":giveup",
+    'move /y "%EXE%.old" "%EXE%" >nul 2>&1',
+    `> "%EXE%.update-failed" echo Could not replace the portable exe: it stayed locked for about two minutes.`,
+    "ping -n 3 127.0.0.1 >nul",
+    'start "" "%EXE%"',
+    "ping -n 3 127.0.0.1 >nul",
+    'start /b cmd /c "ping -n 5 127.0.0.1 >nul & del ""%~f0"""',
+    "exit /b 1",
     "",
   ].join("\r\n");
 }
@@ -202,7 +231,7 @@ export function installPortableUpdate(): void {
     // Copy rather than move so a half-copied file is never named like a
     // working exe if this process dies mid-way.
     copyFileSync(downloadedPath, next);
-    writeFileSync(script, swapScript(exe, next, process.pid), "ascii");
+    writeFileSync(script, swapScript(exe, next), "ascii");
   } catch (error) {
     installing = false;
     log.error("Portable update could not stage the new exe:", error);
@@ -228,9 +257,20 @@ export function installPortableUpdate(): void {
 }
 
 /** Remove what a previous update or an interrupted one left behind. */
-function cleanupPrevious(): void {
+function cleanupPrevious(): string | null {
   const exe = portableExe();
-  if (!exe) return;
+  if (!exe) return null;
+  // The swap script writes this when it could not put the new exe in place.
+  const failed = `${exe}.update-failed`;
+  let failure: string | null = null;
+  if (existsSync(failed)) {
+    try {
+      failure = readFileSync(failed, "utf8").trim() || "the portable exe could not be replaced";
+    } catch {
+      failure = "the portable exe could not be replaced";
+    }
+    rmSync(failed, { force: true });
+  }
   for (const leftover of [`${exe}.new`, `${exe}.old`, `${exe}.update.cmd`]) {
     try {
       rmSync(leftover, { force: true });
@@ -239,6 +279,7 @@ function cleanupPrevious(): void {
       log.warn(`Portable update cleanup skipped ${leftover}:`, error);
     }
   }
+  return failure;
 }
 
 async function runCheck(): Promise<void> {
@@ -270,7 +311,20 @@ async function runCheck(): Promise<void> {
 
 export function initPortableUpdater(win: BrowserWindow): void {
   updateWindow = win;
-  cleanupPrevious();
+  const failure = cleanupPrevious();
+  if (failure) {
+    // A failed update is never silent: say which step failed and why, then
+    // close. The dialog is used instead of the renderer because Settings may
+    // not be the open view, and it blocks, so the message is read first.
+    log.error("Portable update failed to install:", failure);
+    send({ state: "error", message: failure });
+    dialog.showErrorBox(
+      "RiotSwitcher update failed",
+      `The update was downloaded but could not be installed.\n\n${failure}\n\nRiotSwitcher will close now.`,
+    );
+    app.quit();
+    return;
+  }
   setTimeout(() => void runCheck(), STARTUP_CHECK_DELAY_MS).unref?.();
   checkTimer = setInterval(() => void runCheck(), CHECK_INTERVAL_MS);
   checkTimer.unref?.();
