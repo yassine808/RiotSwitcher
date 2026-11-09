@@ -1923,3 +1923,22 @@
 - Next: build and publish 3.1.11 (first build with the portable updater), then
   3.1.12, run the 3.1.11 portable and watch it replace itself with 3.1.12.
   CI uploads need \CLOUDFLARE_API_TOKEN\ / \CLOUDFLARE_ACCOUNT_ID\ secrets.
+
+### 2026-11-09 — Publish 3.1.11 → 3.1.12, Mermaid README
+
+- Goal: prove the public R2 feed against both builds, and make the README
+  visual-only.
+- Done:
+  - 3.1.11 published: setup, blockmap, portable, `latest.yml`, `latest.json`.
+  - 3.1.12 published the same way; the feed now reports 3.1.12 for both
+    manifests.
+  - README cut to two Mermaid diagrams (app flow, update flow) plus the three
+    screenshots; `docs/update-flow.svg` deleted.
+  - Both diagrams parsed and rendered with Mermaid 11 in Electron before the
+    commit.
+- Verified: `latest.yml` = 3.1.12, setup 138,616,491 B; `latest.json` = 3.1.12,
+  portable 126,726,883 B, sha256 `a47f2ece…b04c`; `HEAD` 200 on both exes with
+  matching lengths; Mermaid render returned ok for both diagrams.
+- Next: run the 3.1.11 portable with the installed app closed and watch it swap
+  itself to 3.1.12 — blocked while VALORANT and the installed app are open.
+  Then add the `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repo secrets.
