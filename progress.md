@@ -1780,3 +1780,21 @@
   `main.log` should show `[watchdog] launch request 1 accepted=True` if Riot
   drops the flag again.
 
+### 2026-11-09 - Ship 3.1.8 with the faster launch watchdog
+
+- Goal: put the fixed watchdog into the installed app Yassine actually runs.
+- Done:
+  - `package.json` / `package-lock.json` -> 3.1.8.
+  - `npm run dist` built `RiotSwitcher-Setup-3.1.8.exe` (138,625,301 B) and
+    `RiotSwitcher-3.1.8-portable.exe` (126,764,879 B); `latest.yml` updated.
+  - Installed the setup silently over 3.1.7 (`/S`, exit 0) and relaunched the
+    app from `%LOCALAPPDATA%\Programs\RiotSwitcher`; VALORANT was left running.
+- Verified: installed `RiotSwitcher.exe` reports 3.1.8; the packaged
+  `resources/python/main.exe` contains `watchdog: targeting` and
+  `/product-metadata/v2/products`; `main.log` now carries backend stderr
+  (`[python] [backend] ready, data_dir=...`), so watchdog attempts will be
+  visible there.
+- Next: close VALORANT, launch a profile, and check `main.log` for
+  `[watchdog] launch request 1 accepted=True`.
+
+
