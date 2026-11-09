@@ -2042,3 +2042,29 @@
     `release/` holds the previous build; CI rebuilds before it runs.
 - Next: `CLOUDFLARE_API_TOKEN`, then dispatch `release.yml` for `v3.1.13` and
   watch `verify:feed` go green.
+
+### 2026-11-09 - Phase 1 green; phase 2 starts with a bootstrap gap
+
+- Goal: prove the tag -> build -> verify -> R2 pipeline end to end, then start
+  phase 2 (app reads the feed, downloads, installs).
+- Done:
+  - `v3.1.14` and `v3.1.15` published from CI. Run `42621506954` is green from
+    the tag push through `verify:feed`, with no manual step.
+  - `verify-feed.mjs --download` (CI sets `VERIFY_DOWNLOAD=1`) downloads the
+    portable once and checks its sha256 - the only check that covers the bytes a
+    client installs.
+  - Removed the `upload-artifact` step: it archived ~265 MB per run and hit the
+    account's artifact quota after the publish had already succeeded.
+  - `PLAN.md`: phase 1 marked done; phase 2 records the 3.1.10 bootstrap gap and
+    the evidence.
+- Verified:
+  - Live 3.1.15: both manifests `no-cache`, all three binaries `immutable`,
+    `3.1.10`-`3.1.14` all 404.
+  - `verify-feed --version 3.1.15 --download`: 61 checks, "the portable on the
+    feed hashes to its manifest sha256 (127272831 B)", exit 0.
+  - The installed app is 3.1.10 and its log shows
+    `GET https://github.com/yassine808/assist/releases.atom -> 404`: it predates
+    `updateFeed.ts` (`e3a083f`, 09:00) and cannot update itself.
+- Next: install 3.1.15 by hand once, then live-test the portable swap and the
+  NSIS update. Both need RiotSwitcher closed, so they wait until VALORANT is not
+  running.

@@ -119,7 +119,11 @@ After the upload, `npm run verify:feed` (`scripts/verify-feed.mjs`) reads the
 public URL the way a client does: both manifests report this version, the
 binaries behind them answer 200 with the declared size, binaries are
 `immutable`, manifests are `no-cache`, and no older version is still served.
-A stale edge copy is retried for up to a minute, then fails the run.
+A stale edge copy is retried for up to a minute, then fails the run. The
+release run sets `VERIFY_DOWNLOAD=1`, which also downloads the portable once
+and checks its sha256 — the only check that covers the bytes a client installs,
+since a corrupt object passes every HEAD check and is refused by the client
+only after the full download.
 
 The run stops on its first step while `CLOUDFLARE_API_TOKEN` or
 `CLOUDFLARE_ACCOUNT_ID` is missing: a release that reaches GitHub but not the

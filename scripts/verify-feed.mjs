@@ -8,6 +8,8 @@
  * manifests that came out the other end name this version, the binaries behind
  * them answer 200 with the declared size, the cache headers are the ones a
  * client needs, and no version outside the retention window is still there.
+ * With `--download` it also fetches the portable once and hashes it, which is
+ * the only check that covers the bytes a client actually installs.
  *
  * A stale edge copy is retried for a while before it counts as a failure: a
  * manifest uploaded seconds ago can still be behind a cached copy.
@@ -16,6 +18,7 @@
  *   node scripts/verify-feed.mjs --version 3.1.12 # check the version on the feed
  *   node scripts/verify-feed.mjs --keep 3         # expect three versions up there
  *   node scripts/verify-feed.mjs --timeout 30     # give up sooner on propagation
+ *   node scripts/verify-feed.mjs --download       # also hash the portable itself
  *
  * The bucket is listed through the R2 API when CLOUDFLARE_API_TOKEN and
  * CLOUDFLARE_ACCOUNT_ID are set (every CI run). Without them, versions known
@@ -23,6 +26,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -232,6 +236,33 @@ for (const binary of binaries) {
     `${binary.name} is served with cache-control "${cacheControl}", so every client re-downloads it`,
     `${binary.name} is immutable (${length} B)`,
   );
+}
+
+// 3b. The bytes behind the portable URL hash to what the manifest says. Every
+// client refuses a mismatch only after downloading the whole file, so a corrupt
+// object would break updates for everyone while every HEAD check still passed.
+// `--download` (or VERIFY_DOWNLOAD=1) pays that one download.
+const wantsDownload = process.argv.includes("--download") || process.env.VERIFY_DOWNLOAD === "1";
+if (wantsDownload && portable?.url && portable.sha256) {
+  try {
+    const hash = createHash("sha256");
+    const response = await fetch(portable.url, { headers: { "cache-control": "no-cache" } });
+    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+    let bytes = 0;
+    for await (const chunk of response.body) {
+      hash.update(chunk);
+      bytes += chunk.length;
+    }
+    const digest = hash.digest("hex");
+    check(
+      digest === portable.sha256.toLowerCase(),
+      `the portable on the feed hashes to ${digest}, latest.json says ${portable.sha256}`,
+      `the portable on the feed hashes to its manifest sha256 (${bytes} B)`,
+    );
+    check(bytes === portable.size, `the portable on the feed is ${bytes} B, latest.json says ${portable.size} B`);
+  } catch (error) {
+    problems.push(`could not download the portable to hash it: ${error.message}`);
+  }
 }
 
 // 4. Both manifests describe the same release.

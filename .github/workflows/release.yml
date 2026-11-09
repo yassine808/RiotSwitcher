@@ -211,11 +211,16 @@ jobs:
         # way a client does. Manifests on this version, binaries behind them
         # with the declared size, cache headers as intended, and nothing older
         # still being served. A stale edge copy is retried, not excused.
+        # VERIFY_DOWNLOAD also hashes the portable: a client only notices a
+        # corrupt object after downloading all 127 MB and then refuses it, so
+        # the bytes are checked here instead of by every user.
         env:
           R2_BUCKET: riotswitcher-updates
-        # No upload-artifact step: by now the GitHub release carries the
-        # installer, its blockmap and both manifests, and the feed carries the
-        # portable too. Archiving ~265 MB per run as well only burned the
-        # account's artifact quota, which failed the run after it had already
-        # published successfully.
+          VERIFY_DOWNLOAD: "1"
         run: npm run verify:feed
+
+      # No upload-artifact step: by now the GitHub release carries the
+      # installer, its blockmap and both manifests, and the feed carries the
+      # portable too. Archiving ~265 MB per run as well only burned the
+      # account's artifact quota, which failed a run that had already
+      # published successfully.

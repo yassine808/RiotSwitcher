@@ -27,7 +27,7 @@ flowchart LR
 
 ## Phase 1 — build → verify → R2
 
-Status: **code complete, one secret missing, first real run pending.**
+Status: **done — run `42621506954` went green from a tag push to `verify:feed`.**
 
 | # | Step | Where | State |
 |---|---|---|---|
@@ -43,9 +43,9 @@ Status: **code complete, one secret missing, first real run pending.**
 | 10 | GitHub release: setup, blockmap, `latest.yml`, `latest.json` | `release.yml` | done |
 | 11 | Upload binaries first, then manifests, with cache headers | `release.yml` | done |
 | 12 | Prune everything outside the window, from the bucket's own listing | `prune-feed.mjs` | done |
-| 13 | Read the public feed back: version, sizes, headers, leftovers | `verify-feed.mjs` | done |
-| 14 | `CLOUDFLARE_API_TOKEN` repo secret | GitHub settings | **blocked — needs the token** |
-| 15 | First end-to-end run for `v3.1.13` | Actions | pending |
+| 13 | Read the public feed back: version, sizes, headers, leftovers, and (with `--download`) the portable's sha256 | `verify-feed.mjs` | done |
+| 14 | `CLOUDFLARE_API_TOKEN` repo secret | GitHub settings | done |
+| 15 | First end-to-end run | Actions | **done — `42621506954`, green** |
 
 Phase 1 is done when a tag push produces a run that goes green and leaves the
 bucket serving exactly that version, with no manual step.
@@ -60,13 +60,22 @@ bucket serving exactly that version, with no manual step.
 - Prune now lists the bucket through the R2 API instead of guessing names from
   tags. `3.1.11` and `3.1.12` were never tagged, so tag-based pruning would
   have left `3.1.12` in the bucket after `3.1.13` published.
+- A tag has to be cut **after** the release tooling it runs: the first 3.1.13
+  attempt checked out a tag that predated `verify:feed` and died with
+  `npm error Missing script: "verify:feed"` after it had already uploaded. The
+  fix was a new tag, not a re-run: a re-run checks out the same old tree.
+- The run also archived the whole `release/` folder as a workflow artifact and
+  hit the account's artifact quota. Removed: the GitHub release and the bucket
+  already hold everything it archived.
 
 ## Phase 2 — R2 → app → install
 
-Status: **code complete, no live update exercised yet.**
+Status: **code complete; one manual install on this machine, then the live
+tests.**
 
 | # | Step | Where | State |
 |---|---|---|---|
+| 0 | A build ≤ 3.1.10 still asks GitHub and 404s on a private repo: install 3.1.15 by hand once | manual | **pending — this machine runs 3.1.10** |
 | 1 | One feed URL constant, overridable for local tests | `src/main/updateFeed.ts` | done |
 | 2 | Installed: `electron-updater` against the generic provider | `src/main/updater.ts` | done |
 | 3 | Installed: check at startup, then every 4 h | `src/main/updater.ts` | done |
@@ -75,12 +84,30 @@ Status: **code complete, no live update exercised yet.**
 | 6 | Portable: download, verify sha256 + size, delete on mismatch | `src/main/portableUpdate.ts` | done |
 | 7 | Portable: batch swap after exit, cleanup on next start | `src/main/portableUpdate.ts` | done |
 | 8 | Renderer sees one `update:status` stream from both paths | `src/main/*` | done |
-| 9 | Live portable update `3.1.12 → 3.1.13` | manual | pending |
-| 10 | Live installed (NSIS) update | manual | pending |
+| 9 | Live portable update `3.1.15 → next` | manual | pending |
+| 10 | Live installed (NSIS) update `3.1.15 → next` | manual | pending |
 | 11 | Failure modes on the real feed: offline, 404, corrupt download | manual | pending |
 
 Phase 2 is done when a published release updates both build types without a
 prompt, a re-download, or a leftover file.
+
+### Why one install has to be manual
+
+`updateFeed.ts` and `portableUpdate.ts` first shipped in `e3a083f` (09:00
+today), after the 3.1.10 build. A 3.1.10 install still carries
+`app-update.yml` with `provider: github` and asks
+`https://github.com/yassine808/assist/releases.atom`, which answers 404 because
+the repository is private. The log on this machine shows exactly that, four
+times, at every start:
+
+```
+[info]  Checking for update
+[error] Auto-updater error: HttpError: 404
+  "method: GET url: https://github.com/yassine808/assist/releases.atom"
+```
+
+Nothing published can reach a client that does not know the feed exists, so
+3.1.10 → 3.1.15 is one manual install. Every release after that updates itself.
 
 ## Decisions already made
 
@@ -103,6 +130,8 @@ prompt, a re-download, or a leftover file.
 
 ## Next action
 
-Create the R2 API token (**My Profile → API Tokens → Create Token → Workers R2
-Storage: Edit**), then dispatch `release.yml` for `v3.1.13` and watch
-`verify:feed` go green. That closes phase 1 and unblocks the phase 2 live test.
+Phase 2: install 3.1.15 once by hand — the 3.1.10 install cannot see the feed —
+then publish the next release and watch both build types update themselves.
+Portable first (no admin, full download), then the installed build (NSIS, block
+delta). Both live tests need RiotSwitcher closed, so they wait for a moment
+when VALORANT is not running.
