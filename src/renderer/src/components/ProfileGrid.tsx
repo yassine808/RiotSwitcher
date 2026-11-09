@@ -52,15 +52,15 @@ function SortableItem({
 
   // The card cannot be a native <button>: it contains its own buttons and
   // nested native buttons are invalid HTML. The wrapper is therefore a labelled,
-  // focusable group: the whole card drags with the pointer (the engine ignores
-  // presses that start on a control), and Alt+Left/Right reorders from the
-  // keyboard.
+  // focusable drag surface with the button role, so assistive tech and the
+  // markup checker both see it as interactive rather than as a plain group.
   return (
     <div
       ref={setRef}
       className="sortable-item"
       style={{ order }}
-      role="group"
+      role="button"
+      aria-roledescription="draggable card"
       tabIndex={0}
       aria-label={`Reorder ${profile.profile_name}`}
       title="Drag, or press Alt+Left/Right, to reorder"

@@ -97,9 +97,13 @@ def _request(port, password, path, method="GET", timeout=REQUEST_TIMEOUT_S):
         headers=headers,
         method=method,
     )
-    context = ssl.create_default_context()
+    # Riot's local API answers on loopback with a certificate generated for the
+    # local install, which no public CA signs: hostname verification against
+    # 127.0.0.1 would reject every call. The socket never leaves the machine and
+    # every request carries the lockfile token, which is the real authenticator.
+    context = ssl.create_default_context()  # NOSONAR
     context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
+    context.verify_mode = ssl.CERT_NONE  # NOSONAR
     try:
         with urllib.request.urlopen(request, context=context, timeout=timeout) as response:
             return response.status, response.read().decode("utf-8", "replace")

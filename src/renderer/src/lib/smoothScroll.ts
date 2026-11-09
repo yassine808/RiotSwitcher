@@ -55,7 +55,7 @@ function prefersReducedMotion(): boolean {
 /** Nearest ancestor that can actually scroll `dir` (1 = down, -1 = up). */
 export function findScroller(start: Element | null, dir: number): HTMLElement | null {
   for (let n = start as HTMLElement | null; n; n = n.parentElement) {
-    if (n.hasAttribute("data-native-scroll")) return null;
+    if (n.dataset.nativeScroll !== undefined) return null;
     const oy = getComputedStyle(n).overflowY;
     if (oy !== "auto" && oy !== "scroll" && oy !== "overlay") continue;
     const max = n.scrollHeight - n.clientHeight;
@@ -118,7 +118,8 @@ function onWheel(e: WheelEvent) {
 /** Anything that moves the element outside this loop wins; drop the animation. */
 function onScroll(e: Event) {
   const r = run;
-  if (!r || e.target !== r.el) return;
+  if (!r) return;
+  if (e.target !== r.el) return;
   if (Math.abs(r.el.scrollTop - r.applied) > 2) stop();
 }
 

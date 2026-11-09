@@ -279,21 +279,29 @@ class AccountDetector:
             if time.time() - started > DETECTION_TIMEOUT_S:
                 self._emit("account_detection_progress", {"status": "canceled", "message": "Login timed out"})
                 return
+            step = self._poll_once(started)
+            if step is None:
+                return
+            started, delay = step
+            self._stop.wait(delay)
 
-            account = rad.read_live_account()
-            if account:
-                profiles_list = self.profiles.load()
-                if not rad.is_account_new(account, profiles_list):
-                    if not self._handle_already_added(rad.display_uid(account)):
-                        return
-                    started = time.time()
-                    self._stop.wait(RELAUNCH_WAIT_S)
-                    continue
-                if not self._handle_new_account(account, rad.display_uid(account)):
-                    return
-                started = time.time()
+    def _poll_once(self, started):
+        """One login poll.
 
-            self._stop.wait(POLL_INTERVAL_S)
+        Returns ``(started, delay)``: the timestamp the timeout counts from and
+        how long to wait before the next poll. ``None`` stops the loop.
+        """
+        account = rad.read_live_account()
+        if not account:
+            return started, POLL_INTERVAL_S
+        display = rad.display_uid(account)
+        if not rad.is_account_new(account, self.profiles.load()):
+            if not self._handle_already_added(display):
+                return None
+            return time.time(), RELAUNCH_WAIT_S
+        if not self._handle_new_account(account, display):
+            return None
+        return time.time(), POLL_INTERVAL_S
 
     def _finish(self, account):
         display = rad.display_uid(account)
