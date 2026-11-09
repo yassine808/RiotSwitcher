@@ -16,12 +16,13 @@
  * token (a local wrangler login), versions are collected from the git tags, the
  * files in release/ and --version, and their usual names are probed instead.
  *
- * Only the current version is kept by default, so the bucket carries one
- * release; `--keep N` widens the window when older builds should stay around
- * for a rollback. Both manifests are never touched.
+ * The three newest versions are kept by default, so the bucket always carries
+ * the last three builds: room to roll back without a rebuild, and the same
+ * window a client may still be running. `--keep N` widens or narrows it. Both
+ * manifests are never touched.
  *
- *   node scripts/prune-feed.mjs                    # keep the current version only
- *   node scripts/prune-feed.mjs --keep 3           # keep room to roll back
+ *   node scripts/prune-feed.mjs                    # keep the three newest versions
+ *   node scripts/prune-feed.mjs --keep 5           # keep a longer rollback window
  *   node scripts/prune-feed.mjs --dry-run          # list what would go
  *   node scripts/prune-feed.mjs --version 3.1.11   # also prune an untagged build
  *
@@ -49,10 +50,11 @@ const ROOT = join(SCRIPT_DIR, "..");
 const RELEASE_DIR = join(ROOT, "release");
 
 const BUCKET = process.env.R2_BUCKET || "riotswitcher-updates";
-// One release in the bucket by default. Raise it (or pass --keep) when the
-// previous builds should stay around: with them there, a bad release is undone
-// by putting the older manifests back instead of rebuilding it.
-const DEFAULT_KEEP = 1;
+// Three releases in the bucket by default. With the previous builds still
+// there, a bad release is undone by putting the older manifests back instead
+// of rebuilding it, and the newest three are always available to clients.
+// release.yml sets R2_KEEP_VERSIONS=3 so prune and verify-feed agree.
+const DEFAULT_KEEP = 3;
 
 function fail(message) {
   console.error(`[feed-prune] ${message}`);

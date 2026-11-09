@@ -119,7 +119,7 @@ that repository.
 
 | Decision | Why |
 |---|---|
-| Bucket holds the **latest version only** | simplest state to verify; `--keep N` widens it when a rollback window is wanted |
+| Bucket holds the **three newest versions** | the last three builds are always downloadable, so a rollback needs no rebuild; `--keep N` changes the window |
 | Binaries before manifests, never the reverse | a client must never read a manifest that names a file the bucket does not have |
 | Binaries `immutable`, manifests `no-cache` | a version's bytes never change; the pointer must be revalidated or releases stay invisible |
 | Feed is the only update source | the repo is private, so a GitHub release asset cannot be fetched by an installed copy |

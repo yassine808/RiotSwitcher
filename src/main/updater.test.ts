@@ -19,6 +19,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 function mockModules(isPackaged: boolean) {
   const checkForUpdates = vi.fn(async () => undefined);
   const setFeedURL = vi.fn();
+  const quit = vi.fn();
+  const showMessageBox = vi.fn(async (..._args: unknown[]) => ({ response: 0 }));
   const handlers = new Map<string, (...args: unknown[]) => void>();
   vi.doMock("electron-updater", () => ({
     autoUpdater: {
@@ -35,13 +37,14 @@ function mockModules(isPackaged: boolean) {
     },
   }));
   vi.doMock("electron", () => ({
-    app: { isPackaged },
+    app: { isPackaged, quit },
     BrowserWindow: class {},
+    dialog: { showMessageBox },
   }));
   vi.doMock("electron-log", () => ({
     default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
   }));
-  return { checkForUpdates, setFeedURL, handlers };
+  return { checkForUpdates, setFeedURL, handlers, quit, showMessageBox };
 }
 
 let quitAndInstallMock: ReturnType<typeof vi.fn>;
@@ -111,6 +114,61 @@ describe("automatic install", () => {
 
     expect(quitAndInstallMock).toHaveBeenCalledTimes(1);
     expect(quitAndInstallMock).toHaveBeenCalledWith(true, true);
+  });
+});
+
+describe("failed updates close the app", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    quitAndInstallMock = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("names the failing step, shows it, then quits", async () => {
+    vi.useFakeTimers();
+    const { handlers, quit, showMessageBox } = mockModules(true);
+
+    const mod = await import("./updater");
+    mod.initAutoUpdater();
+    handlers.get("error")!(new Error("update feed returned HTTP 500"));
+
+    expect(showMessageBox).toHaveBeenCalledTimes(1);
+    const options = showMessageBox.mock.calls[0]![0] as Record<string, unknown>;
+    expect(options.message).toBe("Update check failed");
+    expect(options.detail).toContain("HTTP 500");
+    expect(quit).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(quit).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a download failure as the download step", async () => {
+    const { handlers, showMessageBox } = mockModules(true);
+
+    const mod = await import("./updater");
+    mod.initAutoUpdater();
+    handlers.get("update-available")!({ version: "9.9.9" });
+    handlers.get("error")!(new Error("sha512 mismatch"));
+
+    const options = showMessageBox.mock.calls[0]![0] as Record<string, unknown>;
+    expect(options.message).toBe("Update download failed");
+    expect(options.detail).toContain("sha512 mismatch");
+  });
+
+  it("shows one message even when both the promise and the event fail", async () => {
+    vi.useFakeTimers();
+    const { checkForUpdates, handlers, showMessageBox } = mockModules(true);
+    checkForUpdates.mockRejectedValueOnce(new Error("offline"));
+
+    const mod = await import("./updater");
+    mod.initAutoUpdater();
+    await vi.advanceTimersByTimeAsync(5000);
+    handlers.get("error")!(new Error("offline"));
+
+    expect(showMessageBox).toHaveBeenCalledTimes(1);
   });
 });
 

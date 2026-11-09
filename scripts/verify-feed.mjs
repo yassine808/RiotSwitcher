@@ -14,9 +14,9 @@
  * A stale edge copy is retried for a while before it counts as a failure: a
  * manifest uploaded seconds ago can still be behind a cached copy.
  *
- *   node scripts/verify-feed.mjs                  # package.json version, keep 1
+ *   node scripts/verify-feed.mjs                  # package.json version, keep 3
  *   node scripts/verify-feed.mjs --version 3.1.12 # check the version on the feed
- *   node scripts/verify-feed.mjs --keep 3         # expect three versions up there
+ *   node scripts/verify-feed.mjs --keep 5         # expect five versions up there
  *   node scripts/verify-feed.mjs --timeout 30     # give up sooner on propagation
  *   node scripts/verify-feed.mjs --download       # also hash the portable itself
  *
@@ -67,7 +67,7 @@ function sleep(ms) {
 }
 
 const current = argvValue("--version", JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version);
-const keepCount = Number(argvValue("--keep", process.env.R2_KEEP_VERSIONS ?? "1"));
+const keepCount = Number(argvValue("--keep", process.env.R2_KEEP_VERSIONS ?? "3"));
 const timeoutMs = Number(argvValue("--timeout", "60")) * 1000;
 if (!Number.isInteger(keepCount) || keepCount < 1) {
   console.error(`[verify-feed] invalid keep count: ${keepCount}`);

@@ -46,6 +46,9 @@ const STARTUP_CHECK_DELAY_MS = 5000;
 // The downloaded file is verified before this delay starts, so it only gives
 // the renderer time to show "restarting soon".
 const INSTALL_DELAY_MS = 3000;
+// A failure message stays up this long before the process closes. An ignored
+// dialog must not keep a copy that cannot update itself running.
+const FAILURE_EXIT_MS = 10000;
 
 interface FeedFile {
   url: string;
@@ -63,6 +66,8 @@ let checkTimer: NodeJS.Timeout | null = null;
 let downloadedPath: string | null = null;
 let checking = false;
 let installing = false;
+// One failure, one message, one exit.
+let failedStep: string | null = null;
 
 /** True when this process is the portable build's extracted app. */
 export function isPortableBuild(): boolean {
@@ -79,6 +84,33 @@ function send(payload: Record<string, unknown>): void {
   if (updateWindow && !updateWindow.isDestroyed()) {
     updateWindow.webContents.send("update:status", payload);
   }
+}
+
+/**
+ * Reports a failed update and closes the app.
+ *
+ * Same rule as the installed build: say which step failed and why, then stop.
+ * A portable copy that cannot fetch or replace its exe must not keep running.
+ */
+function failUpdate(step: string, error: unknown): void {
+  if (failedStep) return;
+  failedStep = step;
+  const detail = error instanceof Error ? error.message : String(error);
+  log.error(`${step} failed:`, error);
+  send({ state: "error", step, message: detail });
+
+  const options = {
+    type: "error" as const,
+    title: "RiotSwitcher update failed",
+    message: `${step} failed`,
+    detail: `${detail}\n\nRiotSwitcher will close now.`,
+    buttons: ["Close"],
+    noLink: true,
+  };
+  const win = updateWindow && !updateWindow.isDestroyed() ? updateWindow : null;
+  const shown = win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options);
+  const wait = new Promise<void>((resolve) => setTimeout(resolve, FAILURE_EXIT_MS));
+  void Promise.race([shown.catch(() => undefined), wait]).then(() => app.quit());
 }
 
 /** Numeric comparison of dotted versions, ignoring a leading `v`. */
@@ -237,8 +269,7 @@ export function installPortableUpdate(): void {
     writeFileSync(script, swapScript(exe, next), "ascii");
   } catch (error) {
     installing = false;
-    log.error("Portable update could not stage the new exe:", error);
-    send({ state: "error", message: "Could not write next to the portable exe" });
+    failUpdate("Update install", new Error("could not write next to the portable exe", { cause: error }));
     return;
   }
 
@@ -250,8 +281,7 @@ export function installPortableUpdate(): void {
     }).unref();
   } catch (error) {
     installing = false;
-    log.error("Portable update could not start the swap:", error);
-    send({ state: "error", message: "Could not start the updater" });
+    failUpdate("Update install", new Error("could not start the updater", { cause: error }));
     return;
   }
 
@@ -304,9 +334,7 @@ async function runCheck(): Promise<void> {
     send({ state: "downloaded", version: feed.version });
     setTimeout(installPortableUpdate, INSTALL_DELAY_MS).unref?.();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    log.warn("Portable update check failed:", message);
-    send({ state: "error", message });
+    failUpdate("Update check", error);
   } finally {
     checking = false;
   }
@@ -318,14 +346,8 @@ export function initPortableUpdater(win: BrowserWindow): void {
   if (failure) {
     // A failed update is never silent: say which step failed and why, then
     // close. The dialog is used instead of the renderer because Settings may
-    // not be the open view, and it blocks, so the message is read first.
-    log.error("Portable update failed to install:", failure);
-    send({ state: "error", message: failure });
-    dialog.showErrorBox(
-      "RiotSwitcher update failed",
-      `The update was downloaded but could not be installed.\n\n${failure}\n\nRiotSwitcher will close now.`,
-    );
-    app.quit();
+    // not be the open view, and it is read before the process ends.
+    failUpdate("Update install", new Error(failure));
     return;
   }
   setTimeout(() => void runCheck(), STARTUP_CHECK_DELAY_MS).unref?.();

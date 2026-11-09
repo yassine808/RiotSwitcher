@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
   app: { isPackaged: false, getVersion: () => "0.0.0", getPath: () => tmpdir(), quit: vi.fn() },
-  dialog: { showErrorBox: vi.fn() },
+  dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 0 })) },
   net: { fetch: vi.fn() },
   BrowserWindow: class {},
 }));
