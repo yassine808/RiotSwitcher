@@ -1825,4 +1825,38 @@
 - Next: none; saving writes `Animated/Reyna_Mastery_Card_animated.apng`, while
   the app still prefers the shipped `.webp`.
 
+### 2026-11-09 - Launch the game on the first poll, not after a grace window
+
+- Goal: stop waiting 12 s for Riot's own auto-launch before asking the product
+  launcher, and see a real profile switch do it.
+- Done:
+  - Removed the grace window; the first poll with valid lockfile credentials
+    posts to `/product-launcher/...` immediately (`RETRY_S` 8 -> 1.0,
+    `POLL_S` 0.3 -> 0.2, per-call timeout 0.5 s so a booting client cannot
+    stall the loop for 5 s).
+  - `launch_product_status()` returns the HTTP status; `423 Locked` is treated
+    as "already starting" and stops the re-posts (retried again only after
+    20 s without a session).
+  - Watchdog lines now carry the status and elapsed time:
+    `launch request N status=... after X.Xs`.
+- Verified (real switch, profile `Not Me#1439`, backend driven over its own
+  JSON protocol):
+  - client spawn -> first request 1.6 s, then one every ~1.2 s, all `status=0`
+    (port not listening yet);
+  - `VALORANT.exe` 12.7 s after the client spawn, `valorant.live is up` at
+    16.2 s in the run before the tuning;
+  - a client started without `--launch-product` still launched the game at
+    13.95 s, and its API never answered during boot: the ~12-15 s floor is the
+    Riot Client's own startup, not the app.
+- Shipped: `package.json` -> 3.1.9, `npm run dist` built
+  `RiotSwitcher-Setup-3.1.9.exe` (138,626,036 B) and the portable
+  (126,773,234 B); installed silently over 3.1.8 (exit 0).
+- Verified: installed `RiotSwitcher.exe` reports 3.1.9 and starts; the packaged
+  `resources/python/main.exe` contains `launch_product_status` and the
+  `status=` watchdog line; a real switch driven through that packaged backend
+  (profile `Not Me#1439`) logged `launch request 1 status=0 after 1.6s`, one
+  request every ~1.2 s, `VALORANT.exe` at 17.2 s.
+- Next: nothing to fix in the app path; the remaining wait is the Riot Client
+  booting, during which its API is not listening.
+
 
