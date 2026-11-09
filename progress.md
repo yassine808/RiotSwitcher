@@ -1871,4 +1871,23 @@
 - Next: Yassine clicks a profile; `main.log` should show
   `watchdog: launch request 1 status=...` about 1.5 s after the client pid.
 
+### 2026-11-09 - Pin the auto-updater so CI fails when it changes
+
+- Goal: the updater must never change, because a broken one cannot reach the
+  installs it would need to fix.
+- Done:
+  - `scripts/check-updater-lock.mjs`: sha256 of `src/main/updater.ts` against
+    `scripts/updater.lock.json`; `--update` re-pins deliberately.
+  - `scripts/updater.lock.json` pins
+    `9c2f58b6043fa2d1beda4d65b5120c75749ecd3d25ff1e10da12024b45a354f0`.
+  - npm script `check:updater`; new `updater-lock` job in `ci.yml` (also added
+    to `build.needs`); the release job in `release.yml` runs it again so a tag
+    cannot publish a modified updater.
+- Verified: `npm run check:updater` exits 0 on the current file; after a
+  one-line tamper it exits 1 and prints pinned vs current; `git checkout`
+  restores it and the check passes again. Both workflows parse, prettier clean.
+- Also shipped earlier this session: `main` pushed, tag `v3.1.10` published
+  (Release run 42579087743 succeeded; latest.yml + setup + portable + blockmap).
+- Next: push the guard so the `updater-lock` job runs on GitHub.
+
 
