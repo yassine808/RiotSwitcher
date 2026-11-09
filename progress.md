@@ -2150,3 +2150,16 @@
   - `npx vitest run src/main/shortcuts.test.ts` -> 9 passed; prettier clean.
 - Next: the public repository keeps the lowercase `yassine808/assist`, because
   installed 3.1.8 builds have that exact URL in `app-update.yml`.
+
+### 2026-11-09 - Rename the website folder to Website
+
+- Goal: the site source folder carried the same name as the repository.
+- Done:
+  - `git mv riotswitcher Website`, 59 files, history follows.
+  - The deploy command becomes
+    `wrangler pages deploy Website --project-name riotswitcher`.
+- Verified:
+  - `git status` reports 59 renames and nothing else; no tracked file pointed
+    at the old folder path.
+- Next: the Cloudflare Pages **project** is still called `riotswitcher`. That
+  name is what serves `riotswitcher.pages.dev`, so it stays.
