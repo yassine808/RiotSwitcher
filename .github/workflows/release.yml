@@ -66,6 +66,12 @@ jobs:
           npm run test
           python -m pytest tests/ -q
 
+      # The updater is pinned (see scripts/check-updater-lock.mjs). CI already
+      # enforces it on main; checking again here stops a tag built from a
+      # modified updater from being published to every installed copy.
+      - name: Verify the updater is unchanged
+        run: npm run check:updater
+
       - name: Restore the bundled API key
         # build/embed-env.mjs seals .env into two artifacts (env.bin and the
         # main-process shard). Without this the release would ship with no key
