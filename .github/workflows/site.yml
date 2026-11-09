@@ -41,5 +41,8 @@ jobs:
         working-directory: Website
         run: wrangler pages deploy . --project-name riotswitcher --branch main
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Dedicated Pages token: CLOUDFLARE_API_TOKEN is scoped to R2 for
+          # release.yml and has no Pages permission. Keeping them apart means
+          # rotating one never breaks the other.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
