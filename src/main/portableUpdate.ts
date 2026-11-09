@@ -1,0 +1,292 @@
+/**
+ * Self-update for the portable build.
+ *
+ * electron-updater drives the NSIS installer, which a portable copy does not
+ * have: it runs from a temporary extraction and quits without installing
+ * anything. The portable build therefore updates itself: fetch the release
+ * manifest from the update feed, download the new portable exe, swap it in
+ * place of the running one and start it again.
+ *
+ * The swap cannot be done from inside the app: the portable stub is the file
+ * being replaced and Windows keeps a running executable open, so a rename
+ * fails until that process is gone. A short batch script waits for this
+ * process to exit, renames the old exe, drops the new one in its place and
+ * starts it. The script is written next to the exe because only that folder
+ * can be written to without elevation, and its leftovers are removed on the
+ * next start.
+ *
+ * `updater.ts` stays separate (it is pinned by CI); this module emits the same
+ * `update:status` events so the renderer needs no changes.
+ */
+
+import { BrowserWindow, app, net } from "electron";
+import log from "electron-log";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { Readable, Transform } from "node:stream";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
+import { pipeline } from "node:stream/promises";
+
+import { UPDATE_FEED_URL } from "./updateFeed";
+
+// Same cadence as the installed build: once at startup, then every four hours.
+const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const STARTUP_CHECK_DELAY_MS = 5000;
+// The downloaded file is verified before this delay starts, so it only gives
+// the renderer time to show "restarting soon".
+const INSTALL_DELAY_MS = 3000;
+
+interface FeedFile {
+  url: string;
+  sha256?: string;
+  size?: number;
+}
+
+interface Feed {
+  version: string;
+  files?: { portable?: FeedFile };
+}
+
+let updateWindow: BrowserWindow | null = null;
+let checkTimer: NodeJS.Timeout | null = null;
+let downloadedPath: string | null = null;
+let checking = false;
+let installing = false;
+
+/** True when this process is the portable build's extracted app. */
+export function isPortableBuild(): boolean {
+  return app.isPackaged && Boolean(process.env.PORTABLE_EXECUTABLE_FILE);
+}
+
+/** The portable exe the user actually launched, or null when it is gone. */
+function portableExe(): string | null {
+  const path = process.env.PORTABLE_EXECUTABLE_FILE;
+  return path && existsSync(path) ? path : null;
+}
+
+function send(payload: Record<string, unknown>): void {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.webContents.send("update:status", payload);
+  }
+}
+
+/** Numeric comparison of dotted versions, ignoring a leading `v`. */
+function compareVersions(a: string, b: string): number {
+  const left = a
+    .replace(/^v/, "")
+    .split(".")
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const right = b
+    .replace(/^v/, "")
+    .split(".")
+    .map((part) => Number.parseInt(part, 10) || 0);
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function fetchFeed(): Promise<Feed> {
+  // The manifest must never be served from a cache: a stale copy would hide a
+  // release, and a fresh one would announce a file the CDN has not got yet.
+  const response = await net.fetch(`${UPDATE_FEED_URL}/latest.json?t=${Date.now()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`update feed returned HTTP ${response.status}`);
+  }
+  return (await response.json()) as Feed;
+}
+
+async function download(file: FeedFile, version: string): Promise<string> {
+  const dir = join(app.getPath("userData"), "updates");
+  mkdirSync(dir, { recursive: true });
+  const target = join(dir, `RiotSwitcher-${version}-portable.exe`);
+  rmSync(target, { force: true });
+
+  const response = await net.fetch(file.url, { cache: "no-store" });
+  if (!response.ok || !response.body) {
+    throw new Error(`download returned HTTP ${response.status}`);
+  }
+  const total = Number(response.headers.get("content-length") ?? file.size ?? 0);
+  const hash = createHash("sha256");
+  let received = 0;
+
+  const meter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      received += chunk.length;
+      hash.update(chunk);
+      if (total > 0) {
+        send({
+          state: "downloading",
+          version,
+          percent: Math.min(100, Math.round((received / total) * 100)),
+          transferred: received,
+          total,
+        });
+      }
+      callback(null, chunk);
+    },
+  });
+
+  await pipeline(
+    Readable.fromWeb(response.body as unknown as WebReadableStream<Uint8Array>),
+    meter,
+    createWriteStream(target),
+  );
+
+  const digest = hash.digest("hex");
+  if (file.sha256 && digest !== file.sha256.toLowerCase()) {
+    rmSync(target, { force: true });
+    throw new Error("downloaded file failed its checksum");
+  }
+  if (file.size && statSync(target).size !== file.size) {
+    rmSync(target, { force: true });
+    throw new Error("downloaded file has the wrong size");
+  }
+  return target;
+}
+
+/**
+ * Batch script that performs the swap once this process is gone.
+ *
+ * `ping` is the delay: `timeout` refuses to run when stdin is redirected,
+ * which it is for a detached silent process.
+ */
+function swapScript(exe: string, next: string, pid: number): string {
+  return [
+    "@echo off",
+    "setlocal",
+    `set "EXE=${exe}"`,
+    `set "NEW=${next}"`,
+    `set "PID=${pid}"`,
+    ":wait_app",
+    'tasklist /FI "PID eq %PID%" /NH 2>nul | find "%PID%" >nul',
+    "if not errorlevel 1 (",
+    "  ping -n 2 127.0.0.1 >nul",
+    "  goto wait_app",
+    ")",
+    ":rename",
+    'move /y "%EXE%" "%EXE%.old" >nul 2>&1',
+    'if exist "%EXE%" (',
+    "  ping -n 2 127.0.0.1 >nul",
+    "  goto rename",
+    ")",
+    'move /y "%NEW%" "%EXE%" >nul',
+    "ping -n 3 127.0.0.1 >nul",
+    'start "" "%EXE%"',
+    "ping -n 3 127.0.0.1 >nul",
+    'del "%EXE%.old" >nul 2>&1',
+    'del "%~f0" >nul 2>&1',
+    "",
+  ].join("\r\n");
+}
+
+/** Replace the running exe with the downloaded one and start it again. */
+export function installPortableUpdate(): void {
+  if (installing) return;
+  installing = true;
+  const exe = portableExe();
+  if (!exe || !downloadedPath) {
+    installing = false;
+    return;
+  }
+
+  const next = `${exe}.new`;
+  const script = `${exe}.update.cmd`;
+  try {
+    rmSync(next, { force: true });
+    // Copy rather than move so a half-copied file is never named like a
+    // working exe if this process dies mid-way.
+    copyFileSync(downloadedPath, next);
+    writeFileSync(script, swapScript(exe, next, process.pid), "ascii");
+  } catch (error) {
+    installing = false;
+    log.error("Portable update could not stage the new exe:", error);
+    send({ state: "error", message: "Could not write next to the portable exe" });
+    return;
+  }
+
+  try {
+    spawn("cmd.exe", ["/d", "/c", script], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    }).unref();
+  } catch (error) {
+    installing = false;
+    log.error("Portable update could not start the swap:", error);
+    send({ state: "error", message: "Could not start the updater" });
+    return;
+  }
+
+  // before-quit releases the tray interceptor and stops the backend.
+  app.quit();
+}
+
+/** Remove what a previous update or an interrupted one left behind. */
+function cleanupPrevious(): void {
+  const exe = portableExe();
+  if (!exe) return;
+  for (const leftover of [`${exe}.new`, `${exe}.old`, `${exe}.update.cmd`]) {
+    try {
+      rmSync(leftover, { force: true });
+    } catch (error) {
+      // A file still held by the swap script is retried on the next start.
+      log.warn(`Portable update cleanup skipped ${leftover}:`, error);
+    }
+  }
+}
+
+async function runCheck(): Promise<void> {
+  if (checking) return;
+  checking = true;
+  send({ state: "checking" });
+  try {
+    const feed = await fetchFeed();
+    if (compareVersions(feed.version, app.getVersion()) <= 0) {
+      send({ state: "up-to-date" });
+      return;
+    }
+    const portable = feed.files?.portable;
+    if (!portable?.url) {
+      throw new Error("the release has no portable build");
+    }
+    send({ state: "available", version: feed.version, releaseNotes: "" });
+    downloadedPath = await download(portable, feed.version);
+    send({ state: "downloaded", version: feed.version });
+    setTimeout(installPortableUpdate, INSTALL_DELAY_MS).unref?.();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn("Portable update check failed:", message);
+    send({ state: "error", message });
+  } finally {
+    checking = false;
+  }
+}
+
+export function initPortableUpdater(win: BrowserWindow): void {
+  updateWindow = win;
+  cleanupPrevious();
+  setTimeout(() => void runCheck(), STARTUP_CHECK_DELAY_MS).unref?.();
+  checkTimer = setInterval(() => void runCheck(), CHECK_INTERVAL_MS);
+  checkTimer.unref?.();
+  log.info(`Portable update feed: ${UPDATE_FEED_URL}`);
+}
+
+export function checkPortableUpdates(): void {
+  void runCheck();
+}
+
+export function downloadPortableUpdate(): void {
+  // The check already downloads; the renderer only ever asks after it sees
+  // "available", which means the download is already running.
+  if (!downloadedPath) void runCheck();
+}
+
+export function quitAndInstallPortable(): void {
+  installPortableUpdate();
+}

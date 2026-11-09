@@ -2,6 +2,8 @@ import { app, BrowserWindow } from "electron";
 import { autoUpdater, UpdateInfo } from "electron-updater";
 import log from "electron-log";
 
+import { UPDATE_FEED_URL } from "./updateFeed";
+
 // Re-check every four hours so a long-running session still picks up a release
 // published after the app was opened. Startup does the first check.
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -57,6 +59,13 @@ export function initAutoUpdater(): void {
     log.info("Auto-updater disabled outside a packaged build");
     return;
   }
+
+  // Release assets on GitHub need a token once the repository is private, and
+  // an installed copy has none, so the feed is the public bucket. Setting it
+  // here overrides the `publish` block baked into app-update.yml and keeps the
+  // URL in one place, shared with the portable updater.
+  autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL });
+  log.info(`Update feed: ${UPDATE_FEED_URL}`);
 
   autoUpdater.on("checking-for-update", () => {
     sendToRenderer("update:status", { state: "checking" });

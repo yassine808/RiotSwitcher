@@ -32,6 +32,11 @@ jobs:
     environment:
       name: release
       url: https://github.com/${{ github.repository }}/releases/tag/${{ github.event.inputs.tag || github.ref_name }}
+    env:
+      # The public update feed. Empty until the bucket exists, which skips the
+      # upload steps instead of failing the release.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -124,8 +129,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          # The portable exe is served by the update feed only: the repository
+          # is private, so a file downloaded from here cannot be fetched by the
+          # updater, and a stale copy would only confuse the two sources.
           $files = @(Get-ChildItem release -File |
-            Where-Object { $_.Name -match '\.(exe|blockmap)$' -or $_.Name -eq 'latest.yml' } |
+            Where-Object {
+              ($_.Name -match '\.(exe|blockmap)$' -and $_.Name -notmatch '-portable\.exe') -or
+              $_.Name -eq 'latest.yml'
+            } |
             ForEach-Object { $_.FullName })
           if ($files.Count -eq 0) { throw "no release artifacts in release/" }
           gh release view $tag *> $null
@@ -135,6 +146,35 @@ jobs:
           } else {
             gh release create $tag @files --title "RiotSwitcher $tag" --generate-notes
           }
+
+      - name: Build the portable update manifest
+        # latest.json carries the portable exe's URL, size and sha256; the
+        # portable build reads it instead of latest.yml, which needs a YAML
+        # parser it does not ship.
+        run: node scripts/make-update-manifest.mjs
+
+      - name: Install the feed uploader
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: npm install -g wrangler@4
+
+      - name: Publish to the update feed
+        # Both updaters read this bucket: release assets on a private repository
+        # need a token, which an installed copy does not have. Binaries go up
+        # before the manifests, so a client never reads a manifest naming a file
+        # the bucket does not have yet.
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        shell: bash
+        env:
+          R2_BUCKET: riotswitcher-updates
+        run: |
+          set -euo pipefail
+          put() { wrangler r2 object put "$R2_BUCKET/$1" --file "$2" --remote --content-type "$3"; }
+          for file in release/*.exe release/*.blockmap; do
+            [ -e "$file" ] || continue
+            put "$(basename "$file")" "$file" application/octet-stream
+          done
+          put latest.yml release/latest.yml text/yaml
+          put latest.json release/latest.json application/json
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

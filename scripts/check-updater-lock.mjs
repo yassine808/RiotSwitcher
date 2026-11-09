@@ -2,10 +2,11 @@
 /**
  * Pins the auto-updater source.
  *
- * `src/main/updater.ts` is the one module that must never change by accident:
- * it is what lets every installed copy receive future versions. A stray edit
- * here breaks updates for everyone, and the breakage only shows up on machines
- * that are already installed -- the hardest place to fix it.
+ * The updater modules are the ones that must never change by accident: they
+ * are what let every installed copy receive future versions, and a broken one
+ * cannot reach the installs it would need to fix. A stray edit here breaks
+ * updates for everyone, and the breakage only shows up on machines that are
+ * already installed -- the hardest place to fix it.
  *
  * This check hashes the pinned files and fails CI when they differ from the
  * recorded digest. Re-pin only after an approved change:
@@ -22,7 +23,7 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SCRIPT_DIR, "..");
 const LOCK_FILE = join(SCRIPT_DIR, "updater.lock.json");
-const PINNED_FILES = ["src/main/updater.ts"];
+const PINNED_FILES = ["src/main/updater.ts", "src/main/updateFeed.ts", "src/main/portableUpdate.ts"];
 
 const update = process.argv.includes("--update");
 
@@ -31,9 +32,7 @@ function digest(path) {
 }
 
 if (update) {
-  const files = Object.fromEntries(
-    PINNED_FILES.map((file) => [file, digest(join(ROOT, file))]),
-  );
+  const files = Object.fromEntries(PINNED_FILES.map((file) => [file, digest(join(ROOT, file))]));
   writeFileSync(
     LOCK_FILE,
     `${JSON.stringify(
@@ -72,9 +71,7 @@ for (const file of PINNED_FILES) {
   if (expected[file] === undefined) {
     failures.push(`${file}: not pinned in ${LOCK_FILE}`);
   } else if (actual !== expected[file]) {
-    failures.push(
-      `${file}: changed\n  pinned   ${expected[file]}\n  current  ${actual}`,
-    );
+    failures.push(`${file}: changed\n  pinned   ${expected[file]}\n  current  ${actual}`);
   } else {
     console.log(`[updater-lock] ${file} unchanged (${actual})`);
   }

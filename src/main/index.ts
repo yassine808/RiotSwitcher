@@ -4,6 +4,13 @@ import { PythonBridge } from "./python-bridge";
 import { appIconPath, createAppTray } from "./tray";
 import { createAppWindow, AppWindow } from "./window";
 import { initAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall, setUpdateWindow } from "./updater";
+import {
+  checkPortableUpdates,
+  downloadPortableUpdate,
+  initPortableUpdater,
+  isPortableBuild,
+  quitAndInstallPortable,
+} from "./portableUpdate";
 import { registerCardScheme, handleCardProtocol, listAnimatedCards, animatedCardDir } from "./playercards";
 import { createProfileShortcut, launchProfileFromArgv } from "./shortcuts";
 
@@ -90,7 +97,13 @@ function setup(): void {
     });
 
     setUpdateWindow(appWindow.win);
-    initAutoUpdater();
+    if (isPortableBuild()) {
+      // A portable copy runs from a temporary extraction and has no installer
+      // to hand the update to, so it replaces its own exe instead.
+      initPortableUpdater(appWindow.win);
+    } else {
+      initAutoUpdater();
+    }
 
     createAppTray(appIconPath(), {
       onShow: () => {
@@ -166,9 +179,11 @@ function setupIpc(): void {
   });
 
   ipcMain.handle("app:version", () => app.getVersion());
-  ipcMain.handle("update:check", () => checkForUpdates());
-  ipcMain.handle("update:download", () => downloadUpdate());
-  ipcMain.handle("update:install", () => quitAndInstall());
+  // Both updaters emit the same update:status events, so the renderer does not
+  // need to know which build it is talking to.
+  ipcMain.handle("update:check", () => (isPortableBuild() ? checkPortableUpdates() : checkForUpdates()));
+  ipcMain.handle("update:download", () => (isPortableBuild() ? downloadPortableUpdate() : downloadUpdate()));
+  ipcMain.handle("update:install", () => (isPortableBuild() ? quitAndInstallPortable() : quitAndInstall()));
 
   ipcMain.handle("profile:createShortcut", (_event, name: unknown) =>
     createProfileShortcut(typeof name === "string" ? name : ""),
