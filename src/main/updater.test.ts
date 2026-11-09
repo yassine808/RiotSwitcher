@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  */
 function mockModules(isPackaged: boolean) {
   const checkForUpdates = vi.fn(async () => undefined);
+  const setFeedURL = vi.fn();
   const handlers = new Map<string, (...args: unknown[]) => void>();
   vi.doMock("electron-updater", () => ({
     autoUpdater: {
@@ -28,6 +29,7 @@ function mockModules(isPackaged: boolean) {
         handlers.set(event, cb);
       }),
       checkForUpdates,
+      setFeedURL,
       downloadUpdate: vi.fn(async () => undefined),
       quitAndInstall: quitAndInstallMock,
     },
@@ -39,7 +41,7 @@ function mockModules(isPackaged: boolean) {
   vi.doMock("electron-log", () => ({
     default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
   }));
-  return { checkForUpdates, handlers };
+  return { checkForUpdates, setFeedURL, handlers };
 }
 
 let quitAndInstallMock: ReturnType<typeof vi.fn>;
@@ -150,5 +152,17 @@ describe("update checks", () => {
 
     await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
     expect(checkForUpdates).toHaveBeenCalledTimes(3);
+  });
+
+  it("reads the public feed instead of the GitHub release", async () => {
+    const { setFeedURL } = mockModules(true);
+
+    const mod = await import("./updater");
+    mod.initAutoUpdater();
+
+    expect(setFeedURL).toHaveBeenCalledWith({
+      provider: "generic",
+      url: expect.stringMatching(/^https:\/\//),
+    });
   });
 });
