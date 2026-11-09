@@ -1749,3 +1749,34 @@
   is byte-identical.
 - Next: close VALORANT once and launch a profile to watch the watchdog act on
   a real switch (it cannot run while `switch_to` refuses on a running game).
+
+### 2026-11-09 - Make the launch watchdog act before the user gives up
+
+- Goal: the first real switch on 3.1.7 still left Yassine on the Play page; he
+  pressed Play himself. Make the app start VALORANT on its own.
+- Finding: the 03:04 client log has `Launch starting` only at 21.7 s, matching
+  the `click`/`Play` telemetry a person produces (the working 01:55 run shows
+  the same pair at 14.5 s). Riot dropped its own `--launch-product` request, and
+  the watchdog's first request was due 30 s after credentials appeared - the
+  user had already clicked. It was also caching the first lockfile it read and
+  assuming `valorant` / `live`.
+- Done:
+  - Grace 30 s -> 12 s, retry 20 s -> 8 s, attempts 3 -> 15 (cap 150 s stays).
+  - `read_credentials(client_pid=...)` re-reads the lockfile on every poll and
+    rejects a file whose pid is not the client this launch spawned (`name:pid:
+    port:password:https`); a force-killed client's stale port can no longer
+    poison the whole run.
+  - `riot_local_api.resolve_product()` reads `/product-metadata/v2/products`,
+    so the product id and patchline come from the installed client. The launch
+    patchline is read from `RiotClientInstalls.json` (`.../VALORANT/<patchline>/`)
+    instead of assuming `live`.
+  - The watchdog logs each request to stderr; `python-bridge.ts` forwards
+    backend stderr into `main.log`.
+- Verified: live client (read-only) - `read_credentials(client_pid=26692)` ->
+  `(43842, ...)`, wrong pid -> `None`, `resolve_product` -> `valorant`/`live`,
+  `patchline_from_installs()` -> `live`; pytest 222, ruff, compileall, vitest
+  96/96, typecheck, eslint, `npm run build`, PyInstaller `main.exe` built.
+- Next: after the game is closed, install this build and launch a profile; the
+  `main.log` should show `[watchdog] launch request 1 accepted=True` if Riot
+  drops the flag again.
+

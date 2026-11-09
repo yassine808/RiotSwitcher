@@ -1,6 +1,7 @@
 """The loopback Riot Client API used to confirm a product launch."""
 
 import base64
+import json
 import os
 import sys
 import unittest
@@ -35,6 +36,19 @@ class TestLockfile(unittest.TestCase):
     def test_reads_port_and_password(self):
         self.assertEqual(self._read("Riot Client:7016:11108:secret:https"), (11108, "secret"))
 
+    def test_accepts_the_lockfile_of_the_client_we_launched(self):
+        with mock.patch.object(riot_local_api.os.path, "isfile", return_value=True), \
+                mock.patch("builtins.open", mock.mock_open(read_data="Riot Client:7016:11108:secret:https")):
+            self.assertEqual(
+                riot_local_api.read_credentials("lockfile", client_pid=7016), (11108, "secret")
+            )
+
+    def test_rejects_the_previous_clients_lockfile(self):
+        """A force-killed client can leave its lockfile; its port is dead."""
+        with mock.patch.object(riot_local_api.os.path, "isfile", return_value=True), \
+                mock.patch("builtins.open", mock.mock_open(read_data="Riot Client:7016:11108:secret:https")):
+            self.assertIsNone(riot_local_api.read_credentials("lockfile", client_pid=9999))
+
     def test_missing_file_is_not_an_error(self):
         self.assertIsNone(riot_local_api.read_credentials("does-not-exist"))
 
@@ -65,6 +79,37 @@ class TestProductSessions(unittest.TestCase):
     def test_empty_session_map_means_not_started(self):
         with mock.patch.object(riot_local_api, "product_sessions", return_value={}):
             self.assertFalse(riot_local_api.has_product(1, "pw", "valorant", "live"))
+
+
+class TestProductMetadata(unittest.TestCase):
+    def _metadata(self, payload):
+        with mock.patch.object(riot_local_api, "_request", return_value=(200, json.dumps(payload))):
+            return riot_local_api.product_patchlines(1, "pw")
+
+    def test_reads_the_clients_own_catalogue(self):
+        catalogue = self._metadata({
+            "products": {
+                "valorant": {"id": "valorant", "patchlines": {"valorant.live": {}}},
+                "riot_client": {"id": "riot_client", "patchlines": {}},
+            }
+        })
+        self.assertEqual(catalogue, {"valorant": ["live"], "riot_client": []})
+
+    def test_missing_metadata_is_not_an_error(self):
+        with mock.patch.object(riot_local_api, "_request", return_value=(404, "")):
+            self.assertEqual(riot_local_api.product_patchlines(1, "pw"), {})
+
+    def test_keeps_the_requested_patchline_when_the_client_lists_it(self):
+        with mock.patch.object(riot_local_api, "product_patchlines", return_value={"valorant": ["live"]}):
+            self.assertEqual(riot_local_api.resolve_product(1, "pw", "valorant", "live"), ("valorant", "live"))
+
+    def test_takes_the_clients_patchline_when_it_differs(self):
+        with mock.patch.object(riot_local_api, "product_patchlines", return_value={"valorant": ["pbe"]}):
+            self.assertEqual(riot_local_api.resolve_product(1, "pw", "valorant", "live"), ("valorant", "pbe"))
+
+    def test_falls_back_without_metadata(self):
+        with mock.patch.object(riot_local_api, "product_patchlines", return_value={}):
+            self.assertEqual(riot_local_api.resolve_product(1, "pw", "valorant", "live"), ("valorant", "live"))
 
 
 class TestLaunchProduct(unittest.TestCase):

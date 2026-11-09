@@ -13,6 +13,7 @@ live here so the UI can reuse them.
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 
@@ -25,18 +26,17 @@ CLIENT_EXE = "RiotClientServices.exe"
 LAUNCH_PRODUCT_RIOT = "riot"       # Riot client only, no game auto-launch.
 LAUNCH_PRODUCT_VALORANT = "valorant"  # Auto-launch VALORANT after the client.
 DEFAULT_LAUNCH_PRODUCT = LAUNCH_PRODUCT_VALORANT
-LAUNCH_PATCHLINE = "live"
-
-# Static flags always passed to the client.
-BASE_LAUNCH_ARGS = [f"--launch-patchline={LAUNCH_PATCHLINE}"]
+LAUNCH_PATCHLINE = "live"  # fallback when the client's install record is unreadable
 
 # Riot treats --launch-product as a hint: it reaches the product page and then
 # sometimes never presses Play (seen in the client log: the VALORANT page loads,
-# no "product-launcher: Launch starting" follows). Give that request a grace
-# window, then ask the client's own product launcher to start the game.
-PRODUCT_LAUNCH_GRACE_S = 30.0
-PRODUCT_LAUNCH_RETRY_S = 20.0
-PRODUCT_LAUNCH_MAX_ATTEMPTS = 3
+# no "product-launcher: Launch starting" follows). The product page is ready
+# ~10 s after start when Riot does press Play itself, so the watchdog waits a
+# short grace window and then asks the client's product launcher itself. The
+# user gives up well before a longer wait would pay off.
+PRODUCT_LAUNCH_GRACE_S = 12.0
+PRODUCT_LAUNCH_RETRY_S = 8.0
+PRODUCT_LAUNCH_MAX_ATTEMPTS = 15
 PRODUCT_LAUNCH_POLL_S = 1.0
 PRODUCT_LAUNCH_TIMEOUT_S = 150.0
 
@@ -67,6 +67,19 @@ class RiotClientError(Exception):
     """Raised when the Riot Client cannot be located or launched."""
 
 
+def _log(message):
+    """Write a watchdog diagnostic line to stderr.
+
+    The Electron bridge forwards backend stderr into ``main.log``, so a failed
+    auto-launch leaves evidence instead of a silent no-op.
+    """
+    try:
+        sys.stderr.write(f"[watchdog] {message}\n")
+        sys.stderr.flush()
+    except (OSError, ValueError):
+        pass
+
+
 def _reg_install_location(reg_key):
     """Query a registry InstallLocation value, returning "" when absent."""
     try:
@@ -87,6 +100,32 @@ def _reg_install_location(reg_key):
             if len(parts) >= 2:
                 return parts[1].strip()
     return ""
+
+
+def patchline_from_installs(default=LAUNCH_PATCHLINE):
+    """Return the patchline the Riot Client installed for VALORANT.
+
+    ``RiotClientInstalls.json`` records associated clients as
+    ``C:/Riot Games/VALORANT/live/``: the last two segments are the game folder
+    and its patchline. Reading it means the launch argument follows the
+    installed client instead of assuming ``live``. Any read/parse failure keeps
+    the default.
+    """
+    try:
+        with open(RIOT_INSTALLS_JSON, encoding="utf-8", errors="replace") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return default
+    associated = data.get("associated_client") if isinstance(data, dict) else None
+    if not isinstance(associated, dict):
+        return default
+    for path in associated:
+        parts = [part for part in str(path).replace("\\", "/").split("/") if part]
+        if len(parts) >= 2 and parts[-2].lower() == "valorant":
+            patchline = parts[-1].strip().lower()
+            if patchline:
+                return patchline
+    return default
 
 
 class RiotClientManager:
@@ -247,12 +286,18 @@ class RiotClientManager:
         value = str(self._config.get("LaunchProduct", DEFAULT_LAUNCH_PRODUCT))
         return value if value in (LAUNCH_PRODUCT_RIOT, LAUNCH_PRODUCT_VALORANT) else DEFAULT_LAUNCH_PRODUCT
 
-    def build_launch_args(self):
-        """Build the Riot Client launch arguments from the saved setting."""
-        args = list(BASE_LAUNCH_ARGS)
-        product = self.get_launch_product()
-        args.insert(0, f"--launch-product={product}")
-        return args
+    def build_launch_args(self, product=None, patchline=None):
+        """Build the Riot Client launch arguments from the saved setting.
+
+        ``product`` / ``patchline`` let the caller reuse values it already
+        resolved (the watchdog needs the same patchline that was sent).
+        """
+        product = product or self.get_launch_product()
+        patchline = patchline or patchline_from_installs()
+        return [
+            f"--launch-product={product}",
+            f"--launch-patchline={patchline}",
+        ]
 
     def launch_client(self, confirm_product=False):
         """Spawn the Riot Client with the configured launch arguments.
@@ -270,9 +315,10 @@ class RiotClientManager:
         if not os.path.isfile(client_path):
             raise RiotClientError(f"{self._client_exe} not found in the selected folder")
         product = self.get_launch_product()
+        patchline = patchline_from_installs()
         try:
             proc = subprocess.Popen(
-                [client_path] + self.build_launch_args(),
+                [client_path] + self.build_launch_args(product, patchline),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError as exc:
@@ -280,12 +326,12 @@ class RiotClientManager:
         if confirm_product and product == LAUNCH_PRODUCT_VALORANT:
             threading.Thread(
                 target=self._confirm_product_launch,
-                args=(product, LAUNCH_PATCHLINE),
+                args=(product, patchline, proc.pid),
                 daemon=True,
             ).start()
         return proc.pid
 
-    def _confirm_product_launch(self, product, patchline):
+    def _confirm_product_launch(self, product, patchline, client_pid=None):
         """Start the product when Riot's own auto-launch request was dropped.
 
         Runs on a daemon thread so the launch request returns as soon as the
@@ -293,18 +339,34 @@ class RiotClientManager:
         not wait for that. Polls the client's local API, which reports the real
         product session (``productId``/``patchlineId``) - more reliable than
         guessing from the process table. If no session exists after the grace
-        window, the product launcher endpoint is called, at most a few times.
+        window, the product launcher endpoint is called, retrying until the
+        session appears or the timeout expires.
+
+        Lockfile credentials are re-read on every poll and must belong to the
+        client this launch spawned (``client_pid``). The previous client's
+        lockfile can survive a force-kill; its port is dead, and caching it
+        would silently disable every later request.
+
+        The product/patchline pair is confirmed against the client's own
+        catalogue once the API answers; the requested pair is only the
+        fallback while the client is still starting.
         """
         deadline = time.monotonic() + PRODUCT_LAUNCH_TIMEOUT_S
-        credentials = None
         ready_at = None
         attempts = 0
         last_attempt = 0.0
+        resolved = False
         while time.monotonic() < deadline:
-            credentials = credentials or local_api.read_credentials()
+            credentials = local_api.read_credentials(client_pid=client_pid)
             if credentials:
                 port, password = credentials
+                if not resolved:
+                    product, patchline = local_api.resolve_product(port, password, product, patchline)
+                    resolved = True
+                    _log(f"watchdog: targeting {product}.{patchline}")
                 if local_api.has_product(port, password, product, patchline):
+                    if attempts:
+                        _log(f"watchdog: {product}.{patchline} is up after {attempts} launch request(s)")
                     return
                 now = time.monotonic()
                 if ready_at is None:
@@ -316,8 +378,10 @@ class RiotClientManager:
                 if due and attempts < PRODUCT_LAUNCH_MAX_ATTEMPTS:
                     attempts += 1
                     last_attempt = now
-                    local_api.launch_product(port, password, product, patchline)
+                    accepted = local_api.launch_product(port, password, product, patchline)
+                    _log(f"watchdog: launch request {attempts} accepted={accepted}")
             time.sleep(PRODUCT_LAUNCH_POLL_S)
+        _log(f"watchdog: gave up on {product}.{patchline} after {attempts} launch request(s)")
 
     def is_running(self):
         """True while any known Riot process is running."""

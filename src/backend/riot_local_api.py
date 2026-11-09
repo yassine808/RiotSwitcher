@@ -2,11 +2,14 @@
 
 The client writes ``Config/lockfile`` (``name:pid:port:password:https``) once it
 is up and serves a loopback API authenticated with HTTP Basic ``riot:<password>``.
-The app uses exactly two calls from it:
+The app uses three calls from it:
 
 * ``GET /product-session/v1/sessions`` - tells us whether the requested product
   (VALORANT) actually got a session, which is more precise than watching the
   process table.
+* ``GET /product-metadata/v2/products`` - the client's own catalogue, so the
+  product id and patchline come from the installed client instead of a
+  hard-coded assumption.
 * ``POST /product-launcher/v1/products/<product>/patchlines/<patchline>`` -
   starts the product explicitly when Riot's own ``--launch-product`` request
   was dropped.
@@ -25,6 +28,10 @@ import urllib.request
 
 LOCKFILE_MIN_PARTS = 5
 REQUEST_TIMEOUT_S = 5.0
+# The client's own catalogue: product id -> its patchlines. The app does not
+# keep its own copy of "valorant"/"live"; whatever the installed client reports
+# is what the product launcher is asked for.
+PRODUCT_METADATA_PATH = "/product-metadata/v2/products"
 
 
 def lockfile_path():
@@ -35,12 +42,18 @@ def lockfile_path():
     return os.path.join(local_app_data, "Riot Games", "Riot Client", "Config", "lockfile")
 
 
-def read_credentials(path=None):
+def read_credentials(path=None, client_pid=None):
     """Return ``(port, password)`` from the lockfile, or ``None``.
 
     The lockfile is rewritten on every client start, so it is read per call
     rather than cached. A missing/stale file (client not running) is a normal
     state, not an error.
+
+    ``client_pid`` makes the check strict: the lockfile carries the owning
+    client's PID (``name:pid:port:password:https``), so a file left behind by
+    the client the switch just killed cannot be mistaken for the new one. The
+    port changes between starts, and a cached read of the old file would make
+    every later request hit a dead port.
     """
     path = path or lockfile_path()
     if not path or not os.path.isfile(path):
@@ -52,6 +65,12 @@ def read_credentials(path=None):
         return None
     if len(parts) < LOCKFILE_MIN_PARTS:
         return None
+    if client_pid is not None:
+        try:
+            if int(parts[1]) != int(client_pid):
+                return None
+        except ValueError:
+            return None
     try:
         port = int(parts[2])
     except ValueError:
@@ -114,6 +133,48 @@ def has_product(port, password, product, patchline, timeout=REQUEST_TIMEOUT_S):
         if session.get("productId") == product and session.get("patchlineId") == patchline:
             return True
     return False
+
+
+def product_patchlines(port, password, timeout=REQUEST_TIMEOUT_S):
+    """Return ``{productId: [patchlineId, ...]}`` from the client's metadata.
+
+    ``{}`` means the call failed or the client has not published its catalogue
+    yet; callers keep their own defaults in that case.
+    """
+    status, text = _request(port, password, PRODUCT_METADATA_PATH, timeout=timeout)
+    if status != 200 or not text:
+        return {}
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return {}
+    products = data.get("products") if isinstance(data, dict) else None
+    if not isinstance(products, dict):
+        return {}
+    catalogue = {}
+    for product_id, entry in products.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("patchlines"), dict):
+            continue
+        prefix = product_id + "."
+        catalogue[product_id] = [
+            key[len(prefix):] for key in entry["patchlines"] if key.startswith(prefix)
+        ]
+    return catalogue
+
+
+def resolve_product(port, password, product, patchline, timeout=REQUEST_TIMEOUT_S):
+    """Return the ``(product, patchline)`` pair the client itself expects.
+
+    The requested patchline wins when the client lists it; otherwise the
+    client's first patchline for that product is used. Without metadata the
+    caller's pair is returned unchanged.
+    """
+    patchlines = product_patchlines(port, password, timeout=timeout).get(product) or []
+    if patchline in patchlines:
+        return product, patchline
+    if patchlines:
+        return product, patchlines[0]
+    return product, patchline
 
 
 def launch_product(port, password, product, patchline, timeout=REQUEST_TIMEOUT_S):

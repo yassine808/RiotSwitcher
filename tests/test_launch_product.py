@@ -8,6 +8,7 @@ client log showed the VALORANT page loading with no
 """
 
 import contextlib
+import json
 import os
 import subprocess
 import sys
@@ -40,29 +41,63 @@ def _config(product):
 
 
 class TestBuildLaunchArgs(unittest.TestCase):
+    def _manager(self, product):
+        manager = riot_client.RiotClientManager(_config(product))
+        patcher = mock.patch.object(riot_client, "patchline_from_installs", return_value="live")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return manager
+
     def test_default_setting_launches_valorant(self):
-        manager = riot_client.RiotClientManager(_config(riot_client.LAUNCH_PRODUCT_VALORANT))
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_VALORANT)
         self.assertEqual(
             manager.build_launch_args(),
             ["--launch-product=valorant", "--launch-patchline=live"],
         )
 
     def test_riot_setting_skips_the_game(self):
-        manager = riot_client.RiotClientManager(_config(riot_client.LAUNCH_PRODUCT_RIOT))
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_RIOT)
         self.assertEqual(
             manager.build_launch_args(),
             ["--launch-product=riot", "--launch-patchline=live"],
         )
 
     def test_unknown_value_falls_back_to_valorant(self):
-        manager = riot_client.RiotClientManager(_config("VALORANT"))
+        manager = self._manager("VALORANT")
         self.assertEqual(manager.get_launch_product(), riot_client.LAUNCH_PRODUCT_VALORANT)
+
+
+class TestPatchlineFromInstalls(unittest.TestCase):
+    """The launch patchline comes from the client's install record, not "live"."""
+
+    def _patchline(self, payload):
+        with mock.patch("builtins.open", mock.mock_open(read_data=json.dumps(payload))):
+            return riot_client.patchline_from_installs()
+
+    def test_reads_the_installed_game_patchline(self):
+        payload = {"associated_client": {"C:/Riot Games/VALORANT/pbe/": "client.exe"}}
+        self.assertEqual(self._patchline(payload), "pbe")
+
+    def test_accepts_windows_separators(self):
+        payload = {"associated_client": {"D:\\Riot Games\\VALORANT\\live\\": "client.exe"}}
+        self.assertEqual(self._patchline(payload), "live")
+
+    def test_falls_back_when_the_game_is_absent(self):
+        payload = {"associated_client": {"C:/Riot Games/League of Legends/live/": "client.exe"}}
+        self.assertEqual(self._patchline(payload), riot_client.LAUNCH_PATCHLINE)
+
+    def test_falls_back_when_the_manifest_is_unreadable(self):
+        with mock.patch("builtins.open", side_effect=OSError("missing")):
+            self.assertEqual(riot_client.patchline_from_installs(), riot_client.LAUNCH_PATCHLINE)
 
 
 class TestLaunchClient(unittest.TestCase):
     def _manager(self, product):
         manager = riot_client.RiotClientManager(_config(product))
         manager.ensure_location = mock.MagicMock(return_value=CLIENT_FOLDER)
+        patcher = mock.patch.object(riot_client, "patchline_from_installs", return_value="live")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         return manager
 
     def test_spawns_the_client_with_the_product_argument(self):
@@ -91,7 +126,7 @@ class TestLaunchClient(unittest.TestCase):
 
         thread_cls.assert_called_once_with(
             target=manager._confirm_product_launch,
-            args=("valorant", "live"),
+            args=("valorant", "live", 7),
             daemon=True,
         )
         thread.start.assert_called_once()
@@ -118,12 +153,14 @@ class TestLaunchClient(unittest.TestCase):
 
 
 class TestProductWatchdog(unittest.TestCase):
-    def _run(self, *, credentials, has_product, launch_product, grace=None, timeout=None):
+    def _run(self, *, credentials, has_product, launch_product, grace=None, timeout=None,
+             resolved=("valorant", "live")):
         manager = riot_client.RiotClientManager(_config(riot_client.LAUNCH_PRODUCT_VALORANT))
         fake_time = FakeTime()
         with contextlib.ExitStack() as stack:
             stack.enter_context(mock.patch.object(riot_client, "time", fake_time))
             stack.enter_context(mock.patch.object(riot_client.local_api, "read_credentials", side_effect=credentials))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "resolve_product", return_value=resolved))
             stack.enter_context(mock.patch.object(riot_client.local_api, "has_product", side_effect=has_product))
             launch = stack.enter_context(
                 mock.patch.object(riot_client.local_api, "launch_product", side_effect=launch_product)
@@ -132,12 +169,12 @@ class TestProductWatchdog(unittest.TestCase):
                 stack.enter_context(mock.patch.object(riot_client, "PRODUCT_LAUNCH_GRACE_S", grace))
             if timeout is not None:
                 stack.enter_context(mock.patch.object(riot_client, "PRODUCT_LAUNCH_TIMEOUT_S", timeout))
-            manager._confirm_product_launch("valorant", "live")
+            manager._confirm_product_launch("valorant", "live", 4242)
         return launch
 
     def test_does_nothing_when_the_game_session_already_exists(self):
         launch = self._run(
-            credentials=lambda: (1234, "pw"),
+            credentials=lambda *a, **k: (1234, "pw"),
             has_product=lambda *a: True,
             launch_product=lambda *a: True,
         )
@@ -145,7 +182,7 @@ class TestProductWatchdog(unittest.TestCase):
 
     def test_starts_the_product_after_the_grace_window(self):
         launch = self._run(
-            credentials=lambda: (1234, "pw"),
+            credentials=lambda *a, **k: (1234, "pw"),
             has_product=lambda *a: False,
             launch_product=lambda *a: True,
         )
@@ -156,7 +193,7 @@ class TestProductWatchdog(unittest.TestCase):
 
     def test_gives_up_when_the_client_api_never_answers(self):
         launch = self._run(
-            credentials=lambda: None,
+            credentials=lambda *a, **k: None,
             has_product=lambda *a: False,
             launch_product=lambda *a: True,
         )
@@ -170,13 +207,41 @@ class TestProductWatchdog(unittest.TestCase):
             return len(checks) > 3
 
         launch = self._run(
-            credentials=lambda: (1234, "pw"),
+            credentials=lambda *a, **k: (1234, "pw"),
             has_product=has_product,
             launch_product=lambda *a: True,
             grace=2,
             timeout=60,
         )
         self.assertEqual(launch.call_count, 1)
+
+    def test_ignores_a_lockfile_from_the_previous_client(self):
+        """A stale lockfile (other PID) is not the client this launch spawned."""
+        seen = []
+
+        def credentials(*_args, **kwargs):
+            seen.append(kwargs.get("client_pid"))
+            return None
+
+        launch = self._run(
+            credentials=credentials,
+            has_product=lambda *a: False,
+            launch_product=lambda *a: True,
+            timeout=5,
+        )
+        launch.assert_not_called()
+        self.assertEqual(set(seen), {4242})
+
+    def test_uses_the_clients_own_patchline(self):
+        launch = self._run(
+            credentials=lambda *a, **k: (1234, "pw"),
+            has_product=lambda *a: False,
+            launch_product=lambda *a: True,
+            resolved=("valorant", "pbe"),
+            grace=1,
+            timeout=5,
+        )
+        launch.assert_called_with(1234, "pw", "valorant", "pbe")
 
 
 class TestOrchestratorConfirmsProduct(unittest.TestCase):

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { app } from "electron";
+import log from "electron-log";
 import { animatedCardDir } from "./playercards";
 import { sealedEnv } from "./env-secret";
 /**
@@ -99,7 +100,11 @@ export class PythonBridge extends EventEmitter {
 
     this.process.stderr?.on("data", (chunk: Buffer) => {
       const msg = chunk.toString().trim();
-      if (msg) console.log(`[python:stderr] ${msg}`);
+      // The backend uses stderr for diagnostics (the launch watchdog's attempts
+      // in particular). Keep them in main.log: in a packaged build the console
+      // is not visible, and a silent no-op is exactly what made the last
+      // "app only opens Riot Client" report unverifiable.
+      if (msg) log.info(`[python] ${msg}`);
     });
 
     this.process.on("exit", (code) => {
