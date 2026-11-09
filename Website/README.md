@@ -3,9 +3,9 @@
 Static site + two tiny Cloudflare Pages Functions. No build step.
 
 ## Deploy (Cloudflare Pages)
-- Push to `main` with any change under `Website/`: `.github/workflows/site.yml` deploys this folder to https://riotswitcher.pages.dev. Nothing else to run.
-- Manual fallback, from inside this folder: `npx wrangler pages deploy . --project-name riotswitcher --branch main`.
-- Downloads always point to the newest build in the `riotswitcher-updates` bucket.
+1. Cloudflare dashboard > Workers & Pages > Create > Pages > Upload assets.
+2. Upload this folder (keep `functions/` in it) or connect a git repo with build output = `/`.
+3. Done. Downloads always point to the newest build in the `riotswitcher-updates` bucket.
 
 ## How downloads work
 - `/download/setup` and `/download/portable` read `latest.yml` from the bucket and redirect to the newest file.
