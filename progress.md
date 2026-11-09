@@ -1942,3 +1942,33 @@
 - Next: run the 3.1.11 portable with the installed app closed and watch it swap
   itself to 3.1.12 — blocked while VALORANT and the installed app are open.
   Then add the `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repo secrets.
+
+### 2026-11-09 - Feed retention, cache headers, withdrawal workflow
+
+- Goal: keep the R2 feed maintainable by CI alone, and let a bad release be
+  withdrawn from the Actions tab instead of rebuilt.
+- Done:
+  - `scripts/prune-feed.mjs` keeps the newest three versions (default 3;
+    `--keep N` or `R2_KEEP_VERSIONS`, `--keep 0` rejected) instead of deleting
+    everything but the current one. `--dry-run` now counts only objects that
+    actually exist.
+  - `release.yml` uploads binaries with `Cache-Control: public,
+    max-age=31536000, immutable` and both manifests with `no-cache`.
+  - `latest.json` is built before the release is published and stored as a
+    release asset, so a withdrawal has both manifests without rebuilding.
+  - New `withdraw.yml` (workflow_dispatch, `dry_run` default true) repoints the
+    feed at an older version: checks the input, that both binaries are still in
+    the bucket and that the target is older than what the feed serves, then
+    writes the two manifests and re-reads the feed to prove it.
+  - `release.yml` now fails on its first step when `CLOUDFLARE_API_TOKEN` or
+    `CLOUDFLARE_ACCOUNT_ID` is missing instead of silently skipping the upload -
+    that silent skip is why 3.1.11 and 3.1.12 had to be uploaded by hand.
+  - Both feed writers share the `release-feed` concurrency group.
+- Verified: prune dry-runs (default keeps 3.1.10/11/12, `--keep 1` keeps 3.1.12,
+  `--keep 0` exits 1); `make-update-manifest --version 3.1.11` writes the 3.1.11
+  URL and the plain run restores 3.1.12; both workflows parse with js-yaml; the
+  credential guard throws for 0 and 1 secrets and passes with both; prettier
+  clean on the workflows; `check:updater` reports all three hashes unchanged.
+- Next: add the two Cloudflare secrets, then tag `v3.1.13` to prove the publish
+  runs with no manual upload. The live portable test is still on hold while
+  VALORANT is running.

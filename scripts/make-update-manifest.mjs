@@ -8,6 +8,7 @@
  *
  *   node scripts/make-update-manifest.mjs            # base from updateFeed.ts
  *   node scripts/make-update-manifest.mjs --base https://cdn.example.com
+ *   node scripts/make-update-manifest.mjs --version 3.1.11
  */
 
 import { createHash } from "node:crypto";
@@ -37,7 +38,14 @@ if (!base) {
 }
 base = base.replace(/\/+$/, "");
 
-const { version } = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+// The package version by default; --version writes the manifest for a release
+// that is already built, which is what a withdrawal needs.
+const versionFlag = process.argv.indexOf("--version");
+const { version: pkgVersion } = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+const version = versionFlag === -1 ? pkgVersion : process.argv[versionFlag + 1];
+
+if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) fail(`invalid version: ${version ?? "(missing)"}`);
+
 const portableName = `RiotSwitcher-${version}-portable.exe`;
 const portablePath = join(RELEASE_DIR, portableName);
 

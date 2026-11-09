@@ -1,0 +1,130 @@
+name: Withdraw
+
+# Repoints the update feed at an older release that is still in the bucket, so
+# nobody new installs a broken build. Start it from the Actions tab (Run
+# workflow) and give it the version to fall back to.
+#
+# It does NOT downgrade anyone: both updaters only move forward, so a client
+# already on the bad version sees the older manifest as not newer and stays put.
+# Withdrawal limits the blast radius; repairing those clients still needs a
+# higher version published normally. See docs/UPDATES.md §7.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to fall back to (must still be in the feed)
+        required: true
+      dry_run:
+        description: Check and print only, do not touch the feed
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Shared with release.yml: the manifests are a single mutable resource and two
+  # runs must not write them at the same time.
+  group: release-feed
+  cancel-in-progress: false
+
+env:
+  FEED_URL: https://pub-6d3d6d22222242dab87967c474f39ada.r2.dev
+  R2_BUCKET: riotswitcher-updates
+
+jobs:
+  withdraw:
+    name: Repoint the feed
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version can be used
+        # Everything that can be wrong is checked before the feed is touched:
+        # the shape of the input, that both binaries are still in the bucket,
+        # and that the target really is older than what the feed serves today.
+        shell: pwsh
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') {
+            throw "version must look like 3.1.11, got '$env:VERSION'"
+          }
+          foreach ($name in @("RiotSwitcher-Setup-$env:VERSION.exe", "RiotSwitcher-$env:VERSION-portable.exe")) {
+            $status = try {
+              (Invoke-WebRequest "$env:FEED_URL/$name" -Method Head -UseBasicParsing).StatusCode
+            } catch { 0 }
+            if ($status -ne 200) { throw "$name is not in the feed" }
+          }
+          $current = (Invoke-RestMethod "$env:FEED_URL/latest.json?t=$(Get-Date -UFormat %s)").version
+          if ([version]$env:VERSION -ge [version]$current) {
+            throw "the feed already serves $current; $env:VERSION is not older, so there is nothing to withdraw"
+          }
+          "feed serves $current, would repoint it to $env:VERSION"
+
+      - name: Fetch that release's manifests
+        # The GitHub release keeps both manifests, so a withdrawal never has to
+        # rebuild anything. Releases published before latest.json was stored
+        # there fall back to regenerating it from the portable exe.
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force release | Out-Null
+          gh release download "v$env:VERSION" -p latest.yml -O release/latest.yml
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path release/latest.yml)) {
+            throw "release v$env:VERSION has no latest.yml asset"
+          }
+          $yml = Get-Content release/latest.yml -Raw
+          if ($yml -notmatch "(?m)^version:\s*$([regex]::Escape($env:VERSION))\s*$") {
+            throw "latest.yml from v$env:VERSION does not declare version $env:VERSION"
+          }
+          gh release download "v$env:VERSION" -p latest.json -O release/latest.json 2>$null
+          if (-not (Test-Path release/latest.json) -or
+              (Get-Content release/latest.json -Raw | ConvertFrom-Json).version -ne $env:VERSION) {
+            "latest.json missing from the release; regenerating it from the feed"
+            Invoke-WebRequest "$env:FEED_URL/RiotSwitcher-$env:VERSION-portable.exe" `
+              -OutFile "release\RiotSwitcher-$env:VERSION-portable.exe"
+            node scripts/make-update-manifest.mjs --version $env:VERSION
+            if ($LASTEXITCODE -ne 0) { throw "make-update-manifest failed" }
+          }
+          Get-ChildItem release/latest.yml, release/latest.json | Select-Object Name, Length
+
+      - name: Install the feed uploader
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: npm install -g wrangler@4
+
+      - name: Repoint the feed
+        # Only the two manifests are written. The binaries are already in the
+        # bucket under their versioned names, which is what the retention
+        # window in prune-feed.mjs is for.
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # A withdrawal that silently does nothing is worse than a failure.
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo "CLOUDFLARE_API_TOKEN is not set"; exit 1; }
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { echo "CLOUDFLARE_ACCOUNT_ID is not set"; exit 1; }
+          put() { wrangler r2 object put "$R2_BUCKET/$1" --file "$2" --remote --content-type "$3" --cache-control "no-cache"; }
+          put latest.yml release/latest.yml text/yaml
+          put latest.json release/latest.json application/json
+
+      - name: Verify the feed now serves that version
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        shell: pwsh
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $feed = Invoke-RestMethod "$env:FEED_URL/latest.json?t=$(Get-Date -UFormat %s)"
+          if ($feed.version -ne $env:VERSION) { throw "feed reports $($feed.version), expected $env:VERSION" }
+          if (-not $feed.files.portable.url.EndsWith("RiotSwitcher-$env:VERSION-portable.exe")) {
+            throw "latest.json points at $($feed.files.portable.url)"
+          }
+          "the feed now serves $env:VERSION"
