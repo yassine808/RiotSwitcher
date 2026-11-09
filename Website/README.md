@@ -13,6 +13,8 @@ Static site + two tiny Cloudflare Pages Functions. No build step.
 - If Functions aren't available (other host), the page reads `latest.yml` from the bucket directly (needs CORS on the bucket).
 
 ## Edit
-- Bucket URL and PayPal: top of `assets/app.js` and `functions/_latest.js`.
+- Bucket URL and PayPal (Support me button is in the footer): top of `assets/app.js` and `functions/_latest.js`.
 - Changelog: `changelog.html`.
 - The demo is your real UI built with a fake backend. Dummy accounts and rebuild steps: `_demo-source/`.
+- Rotating quotes: `QUOTES` list at the top of `assets/quotes.js` (hold time and word stagger are there too).
+- Background music is synthesized in `assets/app.js` (chords and tempo in `CHORDS` / `BAR`).
