@@ -1729,3 +1729,23 @@
   API calls, request auth); ruff, typecheck and eslint clean.
 - Next: rebuild the PyInstaller backend so the installed app carries the
   watchdog, then decide whether this ships as 3.1.7.
+
+### 2026-11-09 - Publish 3.1.7 and verify the release artifacts
+
+- Goal: ship the launch watchdog through the normal release path.
+- Done: tagged `v3.1.7` at `606d3d5`, pushed `main` + tag. CI (42553491928)
+  and Release (42553495888) both succeeded; the release lists `latest.yml`,
+  `RiotSwitcher-Setup-3.1.7.exe`, `RiotSwitcher-3.1.7-portable.exe` and the
+  setup blockmap.
+- Verified: downloaded the published setup exe and confirmed its sha512 matches
+  the published `latest.yml` (`uHUdtlMY...`, 139,415,654 B); extracted it and
+  found `riot_local_api`, `riot_client` and `launch_orchestrator` inside the
+  bundled `main.exe`; `RiotSwitcher.exe` reports 3.1.7; `resources/env.bin`
+  decrypts with the inlined shard and holds the same `HENRIKDEV_API_KEY` as the
+  local `.env` (sha256 `95FCA85F...`).
+- Note: the CI installer differs from the local build in size and `app.asar`
+  hash only because `build/embed-env.mjs` re-seals `.env` under a fresh random
+  key on every build (`out/main/index.js` + `env.bin`). Every other asar file
+  is byte-identical.
+- Next: close VALORANT once and launch a profile to watch the watchdog act on
+  a real switch (it cannot run while `switch_to` refuses on a running game).
