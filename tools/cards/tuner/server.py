@@ -33,6 +33,11 @@ SRC = DATA / "src"
 OUT = PROJECT / "official playercards" / "AgentMastery" / "Animated"
 SETTINGS = DATA / "placement.json"
 
+BASE_FILE = "base.png"
+SHEET_FILE = "sheet.png"
+TILE_FILE = "sheet-tile.png"
+SOURCE_FILES = (BASE_FILE, SHEET_FILE, TILE_FILE)
+
 CARD_W, CARD_H = 268, 640
 DEFAULT_OPACITY = 1.0
 DEFAULT_SPEED = 3.0
@@ -60,7 +65,7 @@ def is_full_card(card):
         return True
     if agent in FULL_CARD_CACHE:
         return FULL_CARD_CACHE[agent]
-    sheet = Image.open(SRC / agent / "sheet.png").convert("RGBA")
+    sheet = Image.open(SRC / agent / SHEET_FILE).convert("RGBA")
     opaque = True
     for index in (0, card["frames"] // 2, card["frames"] - 1):
         col = index % card["cols"]
@@ -87,14 +92,14 @@ def card_default(card):
         # the top of the card (no crop, no stretch).
         w = float(CARD_W)
         h = w * ch / cw
-        return dict(cx=CARD_W / 2.0, cy=h / 2.0, w=w, h=h, rot=0.0)
+        return {"cx": CARD_W / 2.0, "cy": h / 2.0, "w": w, "h": h, "rot": 0.0}
     if is_full_card(card):
         # Cover the card without distorting the cell: keep the cell's own
         # aspect ratio, scale it until both card axes are covered, and let the
         # canvas crop the overflow.
         scale = max(CARD_W / cw, CARD_H / ch)
-        return dict(cx=CARD_W / 2.0, cy=CARD_H / 2.0,
-                    w=cw * scale, h=ch * scale, rot=0.0)
+        return {"cx": CARD_W / 2.0, "cy": CARD_H / 2.0,
+                "w": cw * scale, "h": ch * scale, "rot": 0.0}
     return card["default"]
 
 
@@ -133,9 +138,9 @@ def merged_cards():
         values = clean_placement(card, pick if isinstance(pick, dict) else {})
         card["placement"] = values
         card["saved"] = bool(isinstance(pick, dict) and pick)
-        card["baseUrl"] = "/tuner-src/%s/base.png" % card["agent"]
-        card["sheetUrl"] = "/tuner-src/%s/sheet.png" % card["agent"]
-        card["tileUrl"] = "/tuner-src/%s/sheet-tile.png" % card["agent"]
+        card["baseUrl"] = "/tuner-src/%s/%s" % (card["agent"], BASE_FILE)
+        card["sheetUrl"] = "/tuner-src/%s/%s" % (card["agent"], SHEET_FILE)
+        card["tileUrl"] = "/tuner-src/%s/%s" % (card["agent"], TILE_FILE)
         card["outUrl"] = "/animated/%s" % card["file"]
     return data
 
@@ -164,20 +169,20 @@ def clean_placement(card, raw):
     if not math.isfinite(cx + cy + w + h + rot + blend + opacity + ms
                          + crop_l + crop_r + crop_t + crop_b):
         raise ValueError("placement values must be finite")
-    return dict(
-        cx=round(clamp(cx, -2000.0, 2000.0), 3),
-        cy=round(clamp(cy, -2000.0, 2000.0), 3),
-        w=round(clamp(w, 1.0, 3000.0), 3),
-        h=round(clamp(h, 1.0, 3000.0), 3),
-        rot=round(clamp(rot, -180.0, 180.0), 3),
-        blend=round(clamp(blend, 0.0, 1.0), 6),
-        opacity=round(clamp(opacity, 0.0, 1.0), 3),
-        ms=int(round(clamp(ms, 20.0, 2000.0))),
-        cropL=round(clamp(crop_l, 0.0, 45.0), 2),
-        cropR=round(clamp(crop_r, 0.0, 45.0), 2),
-        cropT=round(clamp(crop_t, 0.0, 45.0), 2),
-        cropB=round(clamp(crop_b, 0.0, 45.0), 2),
-    )
+    return {
+        "cx": round(clamp(cx, -2000.0, 2000.0), 3),
+        "cy": round(clamp(cy, -2000.0, 2000.0), 3),
+        "w": round(clamp(w, 1.0, 3000.0), 3),
+        "h": round(clamp(h, 1.0, 3000.0), 3),
+        "rot": round(clamp(rot, -180.0, 180.0), 3),
+        "blend": round(clamp(blend, 0.0, 1.0), 6),
+        "opacity": round(clamp(opacity, 0.0, 1.0), 3),
+        "ms": int(round(clamp(ms, 20.0, 2000.0))),
+        "cropL": round(clamp(crop_l, 0.0, 45.0), 2),
+        "cropR": round(clamp(crop_r, 0.0, 45.0), 2),
+        "cropT": round(clamp(crop_t, 0.0, 45.0), 2),
+        "cropB": round(clamp(crop_b, 0.0, 45.0), 2),
+    }
 
 
 def crop_cell(cell, placement):
@@ -241,8 +246,8 @@ def compose_frame(base, sheet, card, placement, index):
 
 
 def build_apng(card, placement, out_path):
-    base = Image.open(SRC / card["agent"] / "base.png").convert("RGBA")
-    sheet = Image.open(SRC / card["agent"] / "sheet.png").convert("RGBA")
+    base = Image.open(SRC / card["agent"] / BASE_FILE).convert("RGBA")
+    sheet = Image.open(SRC / card["agent"] / SHEET_FILE).convert("RGBA")
     if base.size != (CARD_W, CARD_H):
         raise ValueError("base art for %s is %s, expected 268x640"
                          % (card["agent"], base.size))
@@ -276,10 +281,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
+        # Every byte this server emits is a local file it wrote or read from the
+        # tuner sources; none of it is HTML built from the request. nosniff
+        # keeps a browser from reinterpreting an image as a document.
+        self.send_header("X-Content-Type-Options", "nosniff")
         if not cache:
             self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(payload)
+        self.wfile.write(payload)  # NOSONAR: local files, fixed image content types
 
     def send_json(self, data, status=200):
         self.send_bytes(json.dumps(data).encode("utf-8"),
@@ -289,42 +298,43 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         try:
             if path in ("/", "/index.html"):
-                html = (ROOT / "index.html").read_bytes()
-                self.send_bytes(html, "text/html; charset=utf-8")
-                return
-            if path == "/api/cards":
+                self._serve_index()
+            elif path == "/api/cards":
                 self.send_json(merged_cards())
-                return
-            if path.startswith("/tuner-src/"):
-                rel = path[len("/tuner-src/"):]
-                parts = rel.split("/")
-                if len(parts) != 2 or parts[0] not in {c["agent"] for c in load_cards()["cards"]}:
-                    self.send_json({"error": "unknown source"}, 404)
-                    return
-                if parts[1] not in ("base.png", "sheet.png", "sheet-tile.png"):
-                    self.send_json({"error": "unknown source"}, 404)
-                    return
-                file_path = SRC / parts[0] / parts[1]
-                if not file_path.is_file():
-                    self.send_json({"error": "missing source"}, 404)
-                    return
-                self.send_bytes(file_path.read_bytes(), "image/png", cache=True)
-                return
-            if path.startswith("/animated/"):
-                name = path[len("/animated/"):]
-                cards = {c["file"]: c for c in load_cards()["cards"]}
-                if name not in cards:
-                    self.send_json({"error": "unknown card"}, 404)
-                    return
-                file_path = OUT / name
-                if not file_path.is_file():
-                    self.send_json({"error": "missing card"}, 404)
-                    return
-                self.send_bytes(file_path.read_bytes(), "image/apng", cache=False)
-                return
-            self.send_json({"error": "not found"}, 404)
+            elif path.startswith("/tuner-src/"):
+                self._serve_source(path[len("/tuner-src/"):])
+            elif path.startswith("/animated/"):
+                self._serve_card(path[len("/animated/"):])
+            else:
+                self.send_json({"error": "not found"}, 404)
         except Exception as exc:  # keep the tuner alive and show the problem
             self.send_json({"error": str(exc)}, 500)
+
+    def _serve_index(self):
+        self.send_bytes((ROOT / "index.html").read_bytes(), "text/html; charset=utf-8")
+
+    def _serve_source(self, rel):
+        parts = rel.split("/")
+        agents = {c["agent"] for c in load_cards()["cards"]}
+        if len(parts) != 2 or parts[0] not in agents or parts[1] not in SOURCE_FILES:
+            self.send_json({"error": "unknown source"}, 404)
+            return
+        file_path = SRC / parts[0] / parts[1]
+        if not file_path.is_file():
+            self.send_json({"error": "missing source"}, 404)
+            return
+        self.send_bytes(file_path.read_bytes(), "image/png", cache=True)
+
+    def _serve_card(self, name):
+        cards = {c["file"]: c for c in load_cards()["cards"]}
+        if name not in cards:
+            self.send_json({"error": "unknown card"}, 404)
+            return
+        file_path = OUT / name
+        if not file_path.is_file():
+            self.send_json({"error": "missing card"}, 404)
+            return
+        self.send_bytes(file_path.read_bytes(), "image/apng", cache=False)
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -377,7 +387,9 @@ def main():
     print("[tuner] %s" % url, flush=True)
     print("[tuner] save target: %s" % OUT, flush=True)
     if not args.no_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        # Loopback only: the tuner is a local HTTP server, so there is no TLS
+        # endpoint to open here.
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()  # NOSONAR
     try:
         server.serve_forever()
     except KeyboardInterrupt:

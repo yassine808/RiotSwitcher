@@ -77,11 +77,11 @@ def parse_params():
             if not line.startswith("Bloomline_"):
                 continue
             p = line.strip().split(",")
-            rows[p[0].split("_")[1]] = dict(
-                posH=float(p[1]), posV=float(p[2]), ratio=float(p[3]),
-                scale=float(p[4]), cols=int(float(p[5])), rows=int(float(p[6])),
-                speed=float(p[7]), blend=float(p[8]),
-            )
+            rows[p[0].split("_")[1]] = {
+                "posH": float(p[1]), "posV": float(p[2]), "ratio": float(p[3]),
+                "scale": float(p[4]), "cols": int(float(p[5])), "rows": int(float(p[6])),
+                "speed": float(p[7]), "blend": float(p[8]),
+            }
     return rows
 
 
@@ -97,7 +97,7 @@ def quad(prm):
         cy = 0.0
     elif cy - h / 2.0 >= CARD_H:
         cy = float(CARD_H)
-    return dict(cx=round(cx, 2), cy=round(cy, 2), w=round(w, 2), h=round(h, 2), rot=0.0)
+    return {"cx": round(cx, 2), "cy": round(cy, 2), "w": round(w, 2), "h": round(h, 2), "rot": 0.0}
 
 
 def main():
@@ -133,22 +133,22 @@ def main():
 
         p = prm[codename]
         cols, rows = p["cols"], p["rows"]
-        cards.append(dict(
-            agent=agent,
-            codename=codename,
-            card="Bloomline_%s" % codename,
-            file="%s_Mastery_Card_animated.apng" % agent,
-            cols=cols,
-            rows=rows,
-            frames=cols * rows,
-            cellW=round(size[0] / cols, 3),
-            cellH=round(size[1] / rows, 3),
-            sheetW=size[0],
-            sheetH=size[1],
-            ms=int(round(p["speed"] * 1000 * 1.03)),
-            blend=round(p["blend"], 6),
-            default=quad(p),
-        ))
+        cards.append({
+            "agent": agent,
+            "codename": codename,
+            "card": "Bloomline_%s" % codename,
+            "file": "%s_Mastery_Card_animated.apng" % agent,
+            "cols": cols,
+            "rows": rows,
+            "frames": cols * rows,
+            "cellW": round(size[0] / cols, 3),
+            "cellH": round(size[1] / rows, 3),
+            "sheetW": size[0],
+            "sheetH": size[1],
+            "ms": int(round(p["speed"] * 1000 * 1.03)),
+            "blend": round(p["blend"], 6),
+            "default": quad(p),
+        })
         print("[ok] %-10s %-12s %dx%d  %d frames  default %s"
               % (agent, codename, cols, rows, cols * rows, quad(p)))
 
@@ -157,7 +157,7 @@ def main():
 
     DATA.mkdir(parents=True, exist_ok=True)
     with open(DATA / "cards.json", "w", encoding="utf-8") as f:
-        json.dump(dict(card=dict(w=CARD_W, h=CARD_H), cards=cards), f, indent=2)
+        json.dump({"card": {"w": CARD_W, "h": CARD_H}, "cards": cards}, f, indent=2)
     print("[done] %d cards -> %s" % (len(cards), DATA))
 
 
