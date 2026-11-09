@@ -15,4 +15,4 @@ Static site + two tiny Cloudflare Pages Functions. No build step.
 ## Edit
 - Bucket URL and PayPal: top of `assets/app.js` and `functions/_latest.js`.
 - Changelog: `changelog.html`.
-- Demo accounts: top of `assets/demo.js`.
+- The demo is your real UI built with a fake backend. Dummy accounts and rebuild steps: `_demo-source/`.

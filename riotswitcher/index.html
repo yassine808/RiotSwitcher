@@ -17,28 +17,11 @@
     <p class="note">It only touches the Riot Client. Never the game, never Vanguard.</p>
   </section>
   <section class="stage" aria-label="Interactive demo">
-    <div class="win">
-      <div class="tb"><span class="t"><img src="assets/icon-64.png" alt="">RIOTSWITCHER</span>
-        <div class="tabs" role="tablist"><button role="tab" aria-selected="true" data-view="v-prof">Profiles</button><button role="tab" aria-selected="false" data-view="v-set">Settings</button></div>
-        <span class="dots" aria-hidden="true"><span>–</span><span>□</span><span>×</span></span></div>
-      <div class="view on" id="v-prof">
-        <div class="vh"><h2>PROFILES<span id="count">3</span></h2><button class="add" id="add">+ ADD ACCOUNT</button></div>
-        <div class="row" id="row"></div>
-      </div>
-      <div class="view" id="v-set"><div class="vh"><h2>SETTINGS</h2></div>
-        <div class="set">
-          <label><span>Interface sounds<small>Soft clicks when you switch</small></span><input class="sw" data-snd type="checkbox" checked></label>
-          <label><span>Start with Windows<small>Opens quietly in the tray</small></span><input class="sw" data-snd type="checkbox"></label>
-          <label><span>Minimize to tray<small>Closing the window keeps it running</small></span><input class="sw" data-snd type="checkbox" checked></label>
-          <label><span>Show rank on cards<small>Rank and win/loss, refreshed in the background</small></span><input class="sw" data-snd type="checkbox" checked></label>
-        </div></div>
-      <div class="status" id="status"><i></i><span id="stxt">Pick an account and press Start.</span></div>
-      <div class="modal" id="modal"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="mt"><h3 id="mt">Add an account</h3><p>Sign in to the Riot Client and tick “Stay signed in”. RiotSwitcher saves that login so you can come back to it in one click.</p><div class="ac"><button id="cancel">Cancel</button><button class="p" id="capture">I’m signed in</button></div></div></div>
-    </div>
-    <p class="tip">Live demo with dummy accounts. Try Start, Add Account, Settings.</p>
+    <div class="demo" id="demo"><iframe id="app" src="demo/index.html" title="RiotSwitcher, interactive demo" width="1100" height="790"></iframe></div>
+    <p class="tip">This is the real app, running on dummy accounts. Press a card’s button.</p>
   </section>
 </main>
 <footer><span>Windows 10 and 11. Free and open source.</span><span>Not affiliated with Riot Games.</span></footer>
 </div>
-<script src="/assets/app.js"></script><script src="/assets/demo.js"></script>
+<script src="/assets/app.js"></script><script src="/assets/frame.js"></script>
 </body></html>

@@ -62,8 +62,8 @@ const Amb = (() => {
   btn?.addEventListener("click", (e) => { e.stopPropagation(); set(!on); });
   // Browsers block autoplay, so the sound starts with the first click or key press unless the visitor muted it.
   if (pref !== "off") {
-    const first = () => { removeEventListener("pointerdown", first); removeEventListener("keydown", first); if (!on) set(true, false); };
-    addEventListener("pointerdown", first); addEventListener("keydown", first);
+    const first = () => { removeEventListener("pointerdown", first); removeEventListener("keydown", first); removeEventListener("rs-interact", first); if (!on) set(true, false); };
+    addEventListener("pointerdown", first); addEventListener("keydown", first); addEventListener("rs-interact", first);
   }
   return { blip(f = 660) { if (!on || !ctx) return; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.value = f;
     g.gain.setValueAtTime(0, ctx.currentTime); g.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
