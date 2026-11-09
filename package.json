@@ -1,6 +1,6 @@
 {
   "name": "riotswitcher",
-  "version": "3.1.13",
+  "version": "3.1.14",
   "description": "Riot Account Manager — Switch between Riot accounts instantly",
   "main": "out/main/index.js",
   "author": "Yassine",
