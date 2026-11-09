@@ -2131,3 +2131,22 @@
 - Next: the public repository stays `yassine808/assist` on purpose - installed
   3.1.8 builds have that URL compiled into `app-update.yml`, so renaming it
   would strand them again.
+
+### 2026-11-09 - Correct the casing to RiotSwitcher
+
+- Goal: the product is `RiotSwitcher`; the repository and the folder should
+  carry that casing.
+- Done:
+  - GitHub: `yassine808/riotswitcher` to `yassine808/RiotSwitcher`, still
+    private.
+  - Local folder `D:\Projects\riotswitcher` to `D:\Projects\RiotSwitcher`.
+    Windows needs a two-step rename through `RiotSwitcher.tmp`: a case-only
+    rename is refused with "source and destination path must be different".
+  - `origin`, `electron-builder.yml` (`repo: RiotSwitcher`), the three
+    `shortcuts.test.ts` fixtures and the local `.vscode/settings.json` follow.
+- Verified:
+  - `gh repo view yassine808/RiotSwitcher` -> private; `origin` is
+    `https://github.com/yassine808/RiotSwitcher.git`.
+  - `npx vitest run src/main/shortcuts.test.ts` -> 9 passed; prettier clean.
+- Next: the public repository keeps the lowercase `yassine808/assist`, because
+  installed 3.1.8 builds have that exact URL in `app-update.yml`.

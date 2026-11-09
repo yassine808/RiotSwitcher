@@ -8,7 +8,7 @@ publish:
   # Releases are published from the private repository; the runtime feed is
   # overridden by setFeedURL anyway. The public yassine808/assist only carries
   # the 3.1.8 installer for clients that predate the R2 feed.
-  repo: riotswitcher
+  repo: RiotSwitcher
 
 directories:
   output: release
