@@ -31,7 +31,7 @@ flowchart TD
     A2 --> A3["latest.yml + latest.json"]
   end
 
-  A3 -->|"upload, binaries before manifests"| R2["Cloudflare R2 · riotswitcher-updates<br/>public bucket · anonymous reads"]
+  A3 -->|"upload, binaries before manifests"| R2["Cloudflare R2 · riotswitcher-updates<br/>public bucket · anonymous reads<br/>only the newest version"]
 
   R2 -->|"latest.yml"| I0["installed app<br/>checks on start, every 4 h, or on demand"]
   R2 -->|"latest.json"| P0["portable app<br/>checks on start, every 4 h, or on demand"]

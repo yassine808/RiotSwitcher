@@ -50,10 +50,14 @@ relative to the feed URL.
 riotswitcher-updates/
 ├── latest.yml                              NSIS manifest (electron-builder)
 ├── latest.json                             portable manifest (scripts/make-update-manifest.mjs)
-├── RiotSwitcher-Setup-3.1.11.exe
-├── RiotSwitcher-Setup-3.1.11.exe.blockmap
-└── RiotSwitcher-3.1.11-portable.exe
+├── RiotSwitcher-Setup-3.1.12.exe
+├── RiotSwitcher-Setup-3.1.12.exe.blockmap
+└── RiotSwitcher-3.1.12-portable.exe
 ```
+
+Only the current version stays. `latest.yml`, `latest.json` and that one
+version's three files are everything the bucket holds: after a publish,
+`scripts/prune-feed.mjs` deletes every other version's objects.
 
 `latest.yml` is written by electron-builder for the installer. `latest.json`
 is written after packaging for the portable build, which has no YAML parser:
@@ -82,7 +86,8 @@ flowchart TD
   VERIFY --> GH["GitHub release (private)<br/>Setup exe, blockmap, latest.yml"]
   VERIFY --> MAN["make-update-manifest.mjs<br/>release/latest.json"]
   MAN --> R2["wrangler r2 object put --remote<br/>binaries first, then manifests"]
-  R2 --> FEED["feed<br/>latest.yml · latest.json"]
+  R2 --> PRUNE["prune-feed.mjs<br/>drop the previous version"]
+  PRUNE --> FEED["feed<br/>manifests + one version"]
 ```
 
 `release.yml` uploads in that order on purpose: a client must never read a
@@ -97,8 +102,9 @@ the bucket.
 By hand, from a logged-in shell:
 
 ```powershell
-wrangler r2 object put "riotswitcher-updates/RiotSwitcher-3.1.11-portable.exe" --file release/RiotSwitcher-3.1.11-portable.exe --remote
+wrangler r2 object put "riotswitcher-updates/RiotSwitcher-3.1.12-portable.exe" --file release/RiotSwitcher-3.1.12-portable.exe --remote
 wrangler r2 object put "riotswitcher-updates/latest.json" --file release/latest.json --remote --content-type application/json
+node scripts/prune-feed.mjs
 ```
 
 ## 4. Installed app
@@ -189,6 +195,8 @@ reporting `3.1.12`.
   `updater.ts`, `updateFeed.ts` or `portableUpdate.ts` fails CI until the lock
   is re-pinned in the same commit.
 - Never upload a manifest before its binary.
+- The bucket carries one version. `scripts/prune-feed.mjs` deletes every other
+  version's objects after the new manifests are live, never before.
 - Never rebuild an existing version: the portable downloads by name and a
   changed file under an old name would leave copies on different builds.
 - The feed must stay anonymous. Anything that puts auth in front of the bucket

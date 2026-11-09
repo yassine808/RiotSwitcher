@@ -176,6 +176,16 @@ jobs:
           put latest.yml release/latest.yml text/yaml
           put latest.json release/latest.json application/json
 
+      - name: Prune older versions from the feed
+        # The bucket carries one release. Once the new manifests are live the
+        # previous version's binaries have no reader left, so remove them.
+        # Never before the upload: a client still reading the old manifest
+        # would hit a deleted file.
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        env:
+          R2_BUCKET: riotswitcher-updates
+        run: node scripts/prune-feed.mjs
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
