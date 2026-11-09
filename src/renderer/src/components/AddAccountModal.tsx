@@ -99,11 +99,13 @@ export default function AddAccountModal({ open, onClose, onAccountAdded }: Reado
   const [createdName, setCreatedName] = useState("");
   const prevOpen = useRef(false);
   const skipDetection = useRef(false);
+  const detectionStarted = useRef(false);
 
   const checkForAccount = useCallback(async () => {
     setPhase("checking");
     setCreatedName("");
     skipDetection.current = false;
+    detectionStarted.current = false;
 
     try {
       const result = await call<CaptureResult>("capture_current_account");
@@ -131,12 +133,22 @@ export default function AddAccountModal({ open, onClose, onAccountAdded }: Reado
     }
   }, [open, checkForAccount]);
 
-  // Start detection when phase becomes "opening" — but not if skipDetection is set
+  // Start detection when phase becomes "opening" — but not if skipDetection is set.
+  // `active` alone cannot gate this: when the detector reports "created" (or an
+  // error) the hook sets active=false while the local phase is still
+  // "opening", so an unguarded effect would start a second run — killing and
+  // reopening the Riot Client right after the profile was saved. One start per
+  // attempt; retry resets the guard.
+  const beginDetection = useCallback(async () => {
+    detectionStarted.current = true;
+    await start();
+  }, [start]);
+
   useEffect(() => {
-    if (phase === "opening" && !active && !skipDetection.current) {
-      void start();
+    if (phase === "opening" && !active && !skipDetection.current && !detectionStarted.current) {
+      void beginDetection();
     }
-  }, [phase, active, start]);
+  }, [phase, active, beginDetection]);
 
   // Derive phase from progress
   const progressPhase = progress?.status ? (PHASE_FROM_STATUS[progress.status] ?? null) : null;
@@ -149,10 +161,29 @@ export default function AddAccountModal({ open, onClose, onAccountAdded }: Reado
     onClose();
   }, [stop, onClose]);
 
-  const handleDone = useCallback(() => {
+  const handleDone = useCallback(async () => {
+    // Clear the finished run's progress before closing. Otherwise the hook
+    // keeps `progress.status === "created"` and the next open would show this
+    // account's success screen again while a new detection starts behind it.
+    // Pin the local phase to "created" first so clearing progress cannot flip
+    // the screen to "Opening Riot Client" during the exit animation.
+    skipDetection.current = true;
+    setPhase("created");
+    await stop();
     onAccountAdded?.();
     onClose();
-  }, [onAccountAdded, onClose]);
+  }, [stop, onAccountAdded, onClose]);
+
+  const handleRetry = useCallback(async () => {
+    // Stop the finished run first so its error progress stops overriding the
+    // phase, then start a fresh attempt explicitly. The guard is set before the
+    // await so the start effect cannot also fire while stop() settles.
+    detectionStarted.current = true;
+    await stop();
+    skipDetection.current = false;
+    setPhase("opening");
+    await start();
+  }, [start, stop]);
 
   const name = createdName || progress?.profile_name || progress?.display || "Account";
   const waitingForLogin =
@@ -180,8 +211,8 @@ export default function AddAccountModal({ open, onClose, onAccountAdded }: Reado
       finished={finished}
       failed={failed}
       onClose={() => void handleClose()}
-      onDone={handleDone}
-      onRetry={() => setPhase("opening")}
+      onDone={() => void handleDone()}
+      onRetry={() => void handleRetry()}
     />
   );
 

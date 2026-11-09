@@ -1632,3 +1632,27 @@
   payloads were removed afterwards.
 - Next: publish a release with the dashed asset name so installed 3.1.5 and
   older builds can download the update.
+
+### 2026-11-09 - Add Account still reopened the client: the fix was never in the running build
+
+- Goal: the user reported the Add Account loop again on the installed app.
+- Finding: the installed `%LOCALAPPDATA%\Programs\RiotSwitcher` build is from
+  22:19, before the `detectionStarted` guard. The rebuilt `release/win-unpacked`
+  (22:52) and `RiotSwitcher-Setup-3.1.5.exe` (22:53) do contain the guard, so
+  the app on screen was the old binary.
+- Done:
+  - Kept the one-start-per-attempt guard in `AddAccountModal` (the "created"
+    event used to flip `active` false while the local phase was still
+    "opening", which started a second detection and killed/reopened the
+    client).
+  - `Done` now stops the finished run before closing, so its "created"
+    progress cannot leak into the next open as a stale success screen with a
+    hidden detection running behind it.
+  - Regression tests: no second `start_account_detection` after "created",
+    retry after an error, and a clean reopen after `Done`.
+- Verified: removing the guard makes the test fail with the client reopened
+  (temporary mutation, restored); full gate green - typecheck, eslint,
+  vitest 96/96, pytest 185, ruff, compileall. Rebuilt at 02:06 and installed
+  over the old build (installer exit 0); the installed `app.asar` SHA-256
+  equals `release/win-unpacked` (`84A70D22...`), and the app was relaunched.
+- Next: confirm the Add Account flow on the live login (user-driven step).
