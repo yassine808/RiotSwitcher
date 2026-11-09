@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#070b11"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/icon-512.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap"><link rel="stylesheet" href="/assets/style.css">
+<title>RiotSwitcher: switch Riot accounts in one click</title>
+<meta name="description" content="Switch between Riot accounts without typing a password. Free for Windows.">
+<meta property="og:title" content="RiotSwitcher"><meta property="og:description" content="Switch between Riot accounts in one click."><meta property="og:image" content="/icon-512.png">
+</head><body>
+<div class="bg" aria-hidden="true"><img id="bgimg" src="cards/Reyna.webp" alt=""></div><div class="grain" aria-hidden="true"></div>
+<div class="page">
+<header><a class="brand" href="/"><img src="assets/icon-64.png" alt="">RiotSwitcher</a><nav aria-label="Main"><a href="/changelog.html" >Changelog</a><a data-paypal href="https://paypal.me/yassinemagri" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg><span>Support</span></a><button class="snd" aria-pressed="false" aria-label="Toggle ambient sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10z"/><path class="x" d="M17 9l4 6M21 9l-4 6"/></svg><b>Sound off</b></button></nav></header>
+<main>
+  <section>
+    <h1>Switch Riot accounts in one click.</h1>
+    <p class="lead">No passwords, no logging out. RiotSwitcher keeps each login on your PC and opens the Riot Client already signed in.</p>
+    <div class="cta">
+      <a class="btn" data-dl="setup" href="/download/setup">Download for Windows<small>Installer <span data-version></span></small></a>
+      <a class="link" data-dl="portable" href="/download/portable">Portable .exe</a>
+    </div>
+    <p class="note">It only touches the Riot Client. Never the game, never Vanguard.</p>
+  </section>
+  <section class="stage" aria-label="Interactive demo">
+    <div class="win">
+      <div class="tb"><span class="t"><img src="assets/icon-64.png" alt="">RIOTSWITCHER</span>
+        <div class="tabs" role="tablist"><button role="tab" aria-selected="true" data-view="v-prof">Profiles</button><button role="tab" aria-selected="false" data-view="v-set">Settings</button></div>
+        <span class="dots" aria-hidden="true"><span>–</span><span>□</span><span>×</span></span></div>
+      <div class="view on" id="v-prof">
+        <div class="vh"><h2>PROFILES<span id="count">3</span></h2><button class="add" id="add">+ ADD ACCOUNT</button></div>
+        <div class="row" id="row"></div>
+      </div>
+      <div class="view" id="v-set"><div class="vh"><h2>SETTINGS</h2></div>
+        <div class="set">
+          <label><span>Interface sounds<small>Soft clicks when you switch</small></span><input class="sw" data-snd type="checkbox" checked></label>
+          <label><span>Start with Windows<small>Opens quietly in the tray</small></span><input class="sw" data-snd type="checkbox"></label>
+          <label><span>Minimize to tray<small>Closing the window keeps it running</small></span><input class="sw" data-snd type="checkbox" checked></label>
+          <label><span>Show rank on cards<small>Rank and win/loss, refreshed in the background</small></span><input class="sw" data-snd type="checkbox" checked></label>
+        </div></div>
+      <div class="status" id="status"><i></i><span id="stxt">Pick an account and press Start.</span></div>
+      <div class="modal" id="modal"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="mt"><h3 id="mt">Add an account</h3><p>Sign in to the Riot Client and tick “Stay signed in”. RiotSwitcher saves that login so you can come back to it in one click.</p><div class="ac"><button id="cancel">Cancel</button><button class="p" id="capture">I’m signed in</button></div></div></div>
+    </div>
+    <p class="tip">Live demo with dummy accounts. Try Start, Add Account, Settings.</p>
+  </section>
+</main>
+<footer><span>Windows 10 and 11. Free and open source.</span><span>Not affiliated with Riot Games.</span></footer>
+</div>
+<script src="/assets/app.js"></script><script src="/assets/demo.js"></script>
+</body></html>
