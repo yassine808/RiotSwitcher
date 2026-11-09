@@ -82,6 +82,22 @@ Full pre-commit gate: `typecheck`, `lint`, `test`, `test:py`, `ruff`,
 - League settings sync (`league_settings_sync.py`) is the only module allowed
   to touch League config, and only when `SyncGameSettings` is on (default off).
 
+## Updates (mandatory)
+
+- **An update failure is never silent.** When a check, download, hash check or
+  install fails, the app states it in the window first — which step failed and
+  why — and then closes itself. It must not keep running as if nothing
+  happened, and must not fail without telling the user.
+- Order is fixed: the message is painted, then the process exits. A failed
+  update that leaves the app running is a bug, and so is an exit without a
+  message.
+- Both paths obey it: `electron-updater` for the installed build and
+  `portableUpdate.ts` for the portable build. They already share the
+  `update:status` event, so one renderer state covers both.
+- `src/main/updater.ts`, `src/main/updateFeed.ts` and
+  `src/main/portableUpdate.ts` are hash-pinned by CI (`updater.lock.json`):
+  changing them means re-pinning on purpose.
+
 ## Data & environment
 
 - Packaged app data: `C:\ProgramData\RiotSwitcher` (fixed path, independent of
