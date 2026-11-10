@@ -41,10 +41,35 @@ const CONFIG = {
   }
 })();
 
-/* ---------- rotating quotes: sweep in from the right, blur out upward ---------- */
-(() => {
-  const host = document.getElementById("quote"); if (!host) return;
-  const QUOTES = [
+/* ---------- word-by-word text: sweeps in from the left, fades out blurred and upward ---------- */
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function Swipe(host, texts, { hold = 2300, loop = true, onEnd } = {}) {
+  let i = 0, cur, timer, stopped = false;
+  const make = (text) => {
+    const q = document.createElement("span"); q.className = "q in";
+    const words = text.split(" ");
+    words.forEach((w, k) => {
+      const s = document.createElement("span"); s.className = "w"; s.textContent = w;
+      s.style.setProperty("--i", k); // the leftmost word moves first, the sweep travels right
+      q.append(s); if (k < words.length - 1) q.append(" ");
+    });
+    return q;
+  };
+  const show = () => { if (stopped) return; cur = make(texts[i]); host.replaceChildren(cur); timer = setTimeout(hide, reduceMotion ? 3500 : hold); };
+  const hide = () => {
+    if (stopped) return;
+    const next = () => { i++; if (i >= texts.length) { if (!loop) { onEnd && onEnd(); return; } i = 0; } show(); };
+    if (reduceMotion) return next();
+    cur.className = "q out";
+    timer = setTimeout(next, 600 + (cur.querySelectorAll(".w").length - 1) * 45 + 90);
+  };
+  return { start: show, stop() { stopped = true; clearTimeout(timer); } };
+}
+
+/* ---------- rotating quotes under the header ---------- */
+const Quotes = (() => {
+  const host = document.getElementById("quote"); if (!host) return { start() {} };
+  return Swipe(host, [
     "Switch accounts. Skip the password.",
     "One click. Already signed in.",
     "Your logins stay on your PC.",
@@ -55,27 +80,68 @@ const CONFIG = {
     "Every account, one click away.",
     "Free. Open source. Built for players.",
     "Queue faster. Switch smarter.",
-  ];
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let i = 0, cur;
-  const make = (text) => {
-    const q = document.createElement("span"); q.className = "q in";
-    const words = text.split(" ");
-    words.forEach((w, k) => {
-      const s = document.createElement("span"); s.className = "w"; s.textContent = w;
-      s.style.setProperty("--i", words.length - 1 - k); // the rightmost word moves first, the sweep travels left
-      q.append(s); if (k < words.length - 1) q.append(" ");
-    });
-    return q;
+  ]);
+})();
+
+/* ---------- intro: a few lines first, then the app is revealed ---------- */
+(() => {
+  const intro = document.getElementById("intro"), root = document.documentElement;
+  if (!intro || !root.classList.contains("intro-on")) { Quotes.start(); return; }
+  let done = false, seq;
+  const finish = () => {
+    if (done) return; done = true; seq.stop();
+    try { sessionStorage.setItem("rs-intro", "1"); } catch {}
+    intro.classList.add("leaving"); root.classList.remove("intro-on");
+    setTimeout(() => { intro.remove(); Quotes.start(); }, 900);
   };
-  const show = () => { cur = make(QUOTES[i]); host.replaceChildren(cur); setTimeout(hide, reduce ? 4000 : 2300); };
-  const hide = () => {
-    const next = () => { i = (i + 1) % QUOTES.length; show(); };
-    if (reduce) return next();
-    cur.className = "q out";
-    setTimeout(next, 600 + (cur.querySelectorAll(".w").length - 1) * 45 + 90);
-  };
-  show();
+  seq = Swipe(document.getElementById("introline"), [
+    "Tired of switching VALORANT accounts?",
+    "Logging out. Typing passwords. Again and again.",
+    "There is a faster way.",
+  ], { hold: 2500, loop: false, onEnd: finish });
+  seq.start();
+  intro.addEventListener("click", () => { dispatchEvent(new Event("rs-interact")); finish(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" || e.key === "Enter" || e.key === " ") finish(); });
+})();
+
+/* ---------- support popup: shown right after Download (the download starts at once) or from "Support me" ---------- */
+const Support = (() => {
+  const AMOUNTS = [["3", "Coffee"], ["5", "Thank you"], ["10", "Legend"], ["", "Other"]];
+  const el = document.createElement("div");
+  el.className = "modal"; el.hidden = true;
+  el.innerHTML = `
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sup-title">
+      <button class="mx" aria-label="Close">&times;</button>
+      <div class="dlnote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Your download is starting.</span><a class="retry" href="#">Not starting? Click here</a></div>
+      <div class="heartbig" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-9.3-9.4C1.5 8.3 3.4 5 6.6 5c2 0 3.6 1.1 5.4 3.2C13.8 6.1 15.4 5 17.4 5c3.2 0 5.100 3.300 3.900 6.600C19.500 16.400 12 21 12 21z"/></svg></div>
+      <h2 id="sup-title">Enjoying RiotSwitcher?</h2>
+      <p class="sub">It is free and made by one person. If it saves you time, a small tip keeps it updated and free for everyone.</p>
+      <div class="tips" role="group" aria-label="Tip amount">${AMOUNTS.map(([v, l]) => `<button type="button" class="tip" data-amt="${v}" aria-pressed="false"><b>${v ? "$" + v : "Any"}</b><small>${l}</small></button>`).join("")}</div>
+      <a class="pp" href="#" target="_blank" rel="noopener"><img class="ppl" src="assets/paypal.svg" alt="" onerror="this.remove()"><span>Tip with PayPal</span></a>
+      <button type="button" class="nothanks">Maybe later</button>
+    </div>`;
+  document.body.append(el);
+  const pp = el.querySelector(".pp"), retry = el.querySelector(".retry"), tips = [...el.querySelectorAll(".tip")];
+  let amt = "5", lastFocus = null;
+  const paint = () => { tips.forEach((t) => t.setAttribute("aria-pressed", t.dataset.amt === amt)); pp.href = CONFIG.paypal + (amt ? `/${amt}USD` : ""); };
+  tips.forEach((t) => t.addEventListener("click", () => { amt = t.dataset.amt; paint(); }));
+  const close = () => { el.classList.remove("open"); setTimeout(() => (el.hidden = true), 250); lastFocus?.focus?.(); };
+  function open(mode, dlUrl) {
+    lastFocus = document.activeElement; paint();
+    el.classList.toggle("dl", mode === "download");
+    if (dlUrl) retry.href = dlUrl;
+    el.hidden = false; requestAnimationFrame(() => el.classList.add("open")); pp.focus({ preventScroll: true });
+  }
+  el.addEventListener("click", (e) => { if (e.target === el || e.target.closest(".mx,.nothanks")) close(); });
+  retry.addEventListener("click", (e) => { e.preventDefault(); startDownload(retry.href); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && !el.hidden) close(); });
+  const startDownload = (url) => { const a = document.createElement("a"); a.href = url; a.rel = "noopener"; a.download = ""; a.style.display = "none"; document.body.append(a); a.click(); a.remove(); };
+  document.addEventListener("click", (e) => {
+    const dl = e.target.closest("[data-dl]"), sp = e.target.closest("[data-support]");
+    if (dl) { e.preventDefault(); startDownload(dl.href); open("download", dl.href); }
+    else if (sp) { e.preventDefault(); open("support"); }
+  });
+  return { open };
 })();
 
 /* ---------- ambient sound: a slow nocturne, generated live (no audio files) ---------- */

@@ -22,3 +22,6 @@ Static site + two tiny Cloudflare Pages Functions. No build step.
 - Quotes: `QUOTES` list in `assets/app.js` (new one every ~3 s).
 - Sound: generated live in `assets/app.js` (`Amb`), no audio files.
 - Font: Chakra Petch, self-hosted in `assets/fonts/`, same as the app.
+- Intro lines: `Swipe(...)` call under `intro` in `assets/app.js`. Shown once per browser session.
+- Support popup: `Support` in `assets/app.js`. To show the official PayPal logo, save it as `assets/paypal.svg` (it appears on the PayPal button automatically).
+- FAQ: placeholder questions at the bottom of `index.html`.

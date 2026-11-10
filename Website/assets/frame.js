@@ -12,3 +12,6 @@
     }
   });
 })();
+
+// dim the card wall a little once the visitor scrolls down to the FAQ
+addEventListener("scroll", () => document.body.classList.toggle("past", scrollY > innerHeight * 0.35), { passive: true });
