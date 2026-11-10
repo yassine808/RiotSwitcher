@@ -150,7 +150,12 @@ if (credentials) {
 }
 
 const bucketVersions = (objects ?? []).map(versionOfKey).filter(Boolean);
-const known = new Set([...taggedVersions(), ...releasedVersions(), ...argvVersion(), ...bucketVersions, current]);
+// With a live listing, the window is counted over the versions that actually
+// exist in the bucket. A tag whose build never uploaded still names a version;
+// counting it would evict a real build and leave fewer than `keepCount` there.
+const known = objects
+  ? new Set([...bucketVersions, ...argvVersion(), current])
+  : new Set([...taggedVersions(), ...releasedVersions(), ...argvVersion(), current]);
 
 // Newest last, so the log reads like the release history.
 const ordered = [...known].sort(compareVersions);
@@ -195,7 +200,8 @@ for (const key of candidates) {
 const scope = dryRun ? "would delete" : "deleted";
 const keeping = [...kept].sort(compareVersions).join(", ");
 console.log(
-  `[feed-prune] keeping ${keeping}: ${scope} ${deleted} object(s), ` + `${absent} already absent, ${failed} failed`,
+  `[feed-prune] keeping ${kept.size} version(s) (${keeping}): ${scope} ${deleted} object(s), ` +
+    `${absent} already absent, ${failed} failed`,
 );
 
 if (failed > 0) process.exit(1);

@@ -22,20 +22,20 @@ function mockModules(isPackaged: boolean) {
   const quit = vi.fn();
   const showMessageBox = vi.fn(async (..._args: unknown[]) => ({ response: 0 }));
   const handlers = new Map<string, (...args: unknown[]) => void>();
-  vi.doMock("electron-updater", () => ({
-    autoUpdater: {
-      logger: null,
-      autoDownload: true,
-      autoInstallOnAppQuit: true,
-      on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
-        handlers.set(event, cb);
-      }),
-      checkForUpdates,
-      setFeedURL,
-      downloadUpdate: vi.fn(async () => undefined),
-      quitAndInstall: quitAndInstallMock,
-    },
-  }));
+  const autoUpdater = {
+    logger: null,
+    autoDownload: true,
+    autoInstallOnAppQuit: true,
+    disableDifferentialDownload: false,
+    on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+      handlers.set(event, cb);
+    }),
+    checkForUpdates,
+    setFeedURL,
+    downloadUpdate: vi.fn(async () => undefined),
+    quitAndInstall: quitAndInstallMock,
+  };
+  vi.doMock("electron-updater", () => ({ autoUpdater }));
   vi.doMock("electron", () => ({
     app: { isPackaged, quit },
     BrowserWindow: class {},
@@ -44,7 +44,7 @@ function mockModules(isPackaged: boolean) {
   vi.doMock("electron-log", () => ({
     default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
   }));
-  return { checkForUpdates, setFeedURL, handlers, quit, showMessageBox };
+  return { autoUpdater, checkForUpdates, setFeedURL, handlers, quit, showMessageBox };
 }
 
 let quitAndInstallMock: ReturnType<typeof vi.fn>;
@@ -222,5 +222,16 @@ describe("update checks", () => {
       provider: "generic",
       url: expect.stringMatching(/^https:\/\//),
     });
+  });
+
+  // R2 rejects a multi-range request with 400. electron-updater would log that
+  // failure on every update and then fetch the whole installer anyway, so the
+  // differential path is disabled instead of retried.
+  it("skips the differential download the feed cannot serve", async () => {
+    const { autoUpdater } = mockModules(true);
+
+    await import("./updater");
+
+    expect(autoUpdater.disableDifferentialDownload).toBe(true);
   });
 });

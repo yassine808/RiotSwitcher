@@ -1,7 +1,7 @@
 {
   "note": "sha256 of files that must not change. Re-pin with: node scripts/check-updater-lock.mjs --update",
   "files": {
-    "src/main/updater.ts": "d4d394d2f9f5f0c5a8cd4d9645ef0a6f00a75166cbd64edec0006c7a9c33ec1d",
+    "src/main/updater.ts": "a3e65c3bed18d7936deb4cc80b3e00cbc04f32786d50a55e1a85b79915706d51",
     "src/main/updateFeed.ts": "ba90f29a20701a398fc89139a324a1058451261ebb983f571ef457b97bfa49e5",
     "src/main/portableUpdate.ts": "1fed96781e859c4c3f6194fc880de3d9e81761e9a310bb0c652182103037a6ba"
   }

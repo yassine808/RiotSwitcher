@@ -22,6 +22,11 @@ autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.autoRunAppAfterInstall = true;
 autoUpdater.allowDowngrade = false;
+// R2 answers a multi-range request with 400, so the differential downloader can
+// never work against this feed: it fails once per update and then downloads the
+// whole installer anyway. Skip that guaranteed failure and go straight to the
+// full file.
+autoUpdater.disableDifferentialDownload = true;
 
 let updateWindow: BrowserWindow | null = null;
 let installing = false;

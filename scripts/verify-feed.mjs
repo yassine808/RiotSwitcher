@@ -305,15 +305,21 @@ kept.add(current);
 if (credentials) {
   try {
     const keys = await listBucket(credentials);
-    const keptNames = new Set([...kept].flatMap(objectNames));
+    // The window is counted over the versions that are really in the bucket,
+    // not over the tags. A tag whose upload failed never produced an object,
+    // and counting it would report an eviction that did not happen.
+    const bucketVersions = [...new Set(keys.map(versionOfKey).filter(Boolean))].sort(compareVersions);
+    const windowVersions = bucketVersions.slice(-keepCount);
+    if (!windowVersions.includes(current)) windowVersions.push(current);
+    const windowNames = new Set(windowVersions.flatMap(objectNames));
     const strays = keys.filter((key) => {
       const version = versionOfKey(key);
-      return version !== null && !keptNames.has(key);
+      return version !== null && !windowNames.has(key);
     });
     check(
       strays.length === 0,
       `${strays.length} object(s) outside the retention window are still in the bucket: ${strays.slice(0, 5).join(", ")}`,
-      `the bucket holds ${keptNames.size} object(s) for ${[...kept].sort(compareVersions).join(", ")}`,
+      `the bucket holds ${keys.length} object(s) for ${windowVersions.sort(compareVersions).join(", ")}`,
     );
     for (const key of objectNames(current)) {
       check(keys.includes(key), `${key} is missing from the bucket`);
