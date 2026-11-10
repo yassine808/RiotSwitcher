@@ -87,7 +87,12 @@ jobs:
       # The backend tests the tag already passed in CI, but the release build
       # must not silently skip them if it is dispatched against an old tag.
       - name: Run the gate
+        # bash with `set -e`: on the default PowerShell shell a failing native
+        # command does not stop the step, so a red vitest run used to be
+        # followed by pytest and a green exit code, publishing anyway.
+        shell: bash
         run: |
+          set -euo pipefail
           npm run typecheck
           npm run lint
           npm run test

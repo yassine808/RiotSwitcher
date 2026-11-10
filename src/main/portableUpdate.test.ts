@@ -42,7 +42,9 @@ describe("portable swap script", () => {
     expect(script).toContain('"%EXE%.update-failed"');
   });
 
-  it.skipIf(process.platform !== "win32")("swaps the exe and starts it again", () => {
+  // The script waits with `ping` between attempts, so a slow CI runner can take
+  // longer than vitest's 5 s default. The script caps itself at 30 s.
+  it.skipIf(process.platform !== "win32")("swaps the exe and starts it again", { timeout: 60_000 }, () => {
     const dir = scratch();
     const system32 = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
     // Real exes, not .cmd files: `start` on a .cmd keeps a console open
