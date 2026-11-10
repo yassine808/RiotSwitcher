@@ -23,22 +23,13 @@ const MAPS = ["Ascent", "Bind", "Haven", "Split", "Lotus", "Sunset", "Icebox"];
 
 interface Seed { name: string; card: string; agent: string; tier: number; rr: number; w: number; l: number }
 const SEEDS: Seed[] = [
-  { name: "Reyna#EUW", card: "Reyna", agent: "Reyna", tier: 15, rr: 51, w: 36, l: 59 },
-  { name: "Jett#EUW", card: "Jett", agent: "Jett", tier: 12, rr: 54, w: 16, l: 17 },
-  { name: "Sage#EUW", card: "Sage", agent: "Sage", tier: 24, rr: 120, w: 88, l: 61 },
-  { name: "Sova#EUW", card: "Sova", agent: "Sova", tier: 18, rr: 33, w: 21, l: 19 },
-  { name: "Hush#EUW", card: "Hush", agent: "Hush", tier: 21, rr: 76, w: 54, l: 40 },
-  { name: "Omen#EUW", card: "Omen", agent: "Omen", tier: 14, rr: 12, w: 30, l: 28 },
-  { name: "Viper#EUW", card: "Viper", agent: "Viper", tier: 17, rr: 64, w: 41, l: 33 },
-  { name: "Chamber#EUW", card: "Chamber", agent: "Chamber", tier: 20, rr: 9, w: 67, l: 52 },
-  { name: "Neon#EUW", card: "Neon", agent: "Neon", tier: 9, rr: 40, w: 12, l: 15 },
-  { name: "Raze#EUW", card: "Raze", agent: "Raze", tier: 16, rr: 28, w: 25, l: 24 },
-  { name: "Yoru#EUW", card: "Yoru", agent: "Yoru", tier: 19, rr: 88, w: 48, l: 39 },
-  { name: "Fade#EUW", card: "Fade", agent: "Fade", tier: 22, rr: 5, w: 70, l: 55 },
+  { name: "Nova#EUW", card: "Reyna", agent: "Reyna", tier: 15, rr: 51, w: 36, l: 59 },
+  { name: "Pixel#0001", card: "Jett", agent: "Jett", tier: 12, rr: 54, w: 16, l: 17 },
+  { name: "Quiet#2468", card: "Sage", agent: "Sage", tier: 24, rr: 120, w: 88, l: 61 },
 ];
 const SPARE: Seed[] = [
-  { name: "Killjoy#EUW", card: "Killjoy", agent: "Killjoy", tier: 13, rr: 45, w: 18, l: 16 },
-  { name: "Clove#EUW", card: "Clove", agent: "Clove", tier: 0, rr: 0, w: 0, l: 0 },
+  { name: "Ember#7710", card: "Omen", agent: "Omen", tier: 0, rr: 0, w: 0, l: 0 },
+  { name: "Frost#4412", card: "Sova", agent: "Sova", tier: 18, rr: 33, w: 21, l: 19 },
 ];
 
 let profiles: Json[] = [];

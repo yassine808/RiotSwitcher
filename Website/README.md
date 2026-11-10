@@ -13,8 +13,12 @@ Static site + two tiny Cloudflare Pages Functions. No build step.
 - If Functions aren't available (other host), the page reads `latest.yml` from the bucket directly (needs CORS on the bucket).
 
 ## Edit
-- Bucket URL and PayPal (Support me button is in the footer): top of `assets/app.js` and `functions/_latest.js`.
+- Bucket URL and PayPal: top of `assets/app.js` and `functions/_latest.js`.
 - Changelog: `changelog.html`.
 - The demo is your real UI built with a fake backend. Dummy accounts and rebuild steps: `_demo-source/`.
-- Rotating quotes: `QUOTES` list at the top of `assets/quotes.js` (hold time and word stagger are there too).
-- Background music is synthesized in `assets/app.js` (chords and tempo in `CHORDS` / `BAR`).
+
+## Look and feel
+- Background wall: `bg/*.webp` (still frames of the 30 cards), built in `assets/app.js`. Blur halo around the demo: `.halo` in `assets/style.css`.
+- Quotes: `QUOTES` list in `assets/app.js` (new one every ~3 s).
+- Sound: generated live in `assets/app.js` (`Amb`), no audio files.
+- Font: Chakra Petch, self-hosted in `assets/fonts/`, same as the app.

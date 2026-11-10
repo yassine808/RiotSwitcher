@@ -1,3 +1,0 @@
-- [] In the new to the file created, I want you to write, right after clicking download, it should open a window asking to support the developer, meaning you are going to open my PayPal. And users can choose like to either donate some kind of money or download the app.
-- [] Remove the yes button.
-- [] optimize site so it doesn't consume much and works very lightly. 

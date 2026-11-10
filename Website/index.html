@@ -1,33 +1,29 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#070b11"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/icon-512.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pinyon+Script&family=Cormorant+Garamond:ital,wght@1,600&display=swap"><link rel="stylesheet" href="/assets/style.css?v=4">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#070b11"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/icon-512.png"><link rel="preload" href="/assets/fonts/chakra-petch-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/assets/style.css">
 <title>RiotSwitcher: switch Riot accounts in one click</title>
 <meta name="description" content="Switch between Riot accounts without typing a password. Free for Windows.">
 <meta property="og:title" content="RiotSwitcher"><meta property="og:description" content="Switch between Riot accounts in one click."><meta property="og:image" content="/icon-512.png">
-</head><body class="intro-on">
-<div class="intro" id="intro"><div class="ib"><div class="iq" id="iq" aria-label="Are you tired from switching Valorant accounts?"></div><button class="yes" id="yes">Yes</button></div></div>
-<div class="bg" aria-hidden="true">
-  <img id="bgimg" class="glow" src="cards/Reyna.webp" alt="">
-  <div class="art"><i style="--c:url(cards/Reyna.webp)"></i><i style="--c:url(cards/Omen.webp)"></i><i style="--c:url(cards/Jett.webp)"></i><i style="--c:url(cards/Sage.webp)"></i><i style="--c:url(cards/Reyna.webp)"></i><i style="--c:url(cards/Omen.webp)"></i><i style="--c:url(cards/Jett.webp)"></i></div>
-  <div class="shade"></div>
-</div>
-<div class="grain" aria-hidden="true"></div>
+</head><body>
+<div class="wall" id="wall" aria-hidden="true"></div>
+<div class="glow" aria-hidden="true"><img id="glowimg" src="bg/Reyna.webp" alt=""></div>
+<div class="shade" aria-hidden="true"></div><div class="grain" aria-hidden="true"></div>
 <div class="page">
-<header><a class="brand" href="/"><img src="assets/icon-64.png" alt="">RiotSwitcher</a><nav aria-label="Main"><a href="/changelog.html">Changelog</a><button class="snd" aria-pressed="false" aria-label="Toggle ambient sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10z"/><path class="x" d="M17 9l4 6M21 9l-4 6"/></svg><b>Sound off</b></button><div class="dd"><button class="navdl" aria-haspopup="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span>Download for Windows</span></button><div class="menu"><a data-dl="setup" href="/download/setup">Setup</a><a data-dl="portable" href="/download/portable">Portable</a></div></div></nav></header>
+<header><a class="brand" href="/"><img src="assets/icon-64.png" alt="">RiotSwitcher</a><nav aria-label="Main"><a href="/changelog.html">Changelog</a><button class="snd" aria-pressed="false" aria-label="Toggle ambient sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10z"/><path class="x" d="M17 9l4 6M21 9l-4 6"/><path class="w" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg><b>Sound off</b></button></nav></header>
 <main>
-  <div class="hero">
-    <h1 class="eyebrow">Switch Riot accounts in one click</h1>
-    <div class="quote" id="quote" aria-live="off"></div>
-  </div>
+  <h1 class="sr">RiotSwitcher: switch Riot accounts in one click</h1>
+  <p class="sr">No passwords, no logging out. RiotSwitcher keeps each login on your PC and opens the Riot Client already signed in. It only touches the Riot Client. Never the game, never Vanguard.</p>
+  <div class="quote" id="quote" aria-hidden="true"></div>
   <section class="stage" aria-label="Interactive demo">
-    <div class="demo-wrap">
+    <div class="demo-wrap" id="demo-wrap">
       <div class="halo" aria-hidden="true"></div>
       <div class="demo" id="demo"><iframe id="app" src="demo/index.html" title="RiotSwitcher, interactive demo" width="1100" height="790"></iframe></div>
     </div>
   </section>
+  <div class="cta">
+    <a class="btn" data-dl="setup" href="/download/setup"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5l8-1.1v7.1H3zM12 4.3L21 3v8.5h-9zM3 12.5h8v7.1l-8-1.1zM12 12.5h9V21l-9-1.3z"/></svg><span class="t">Download for Windows<small>Installer <span data-version></span> · Free</small></span></a>
+    <a class="ghost" data-dl="portable" href="/download/portable">Portable .exe</a>
+  </div>
 </main>
-<footer>
-  <a class="support" data-paypal href="https://paypal.me/yassinemagri" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 0 0-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 0 0-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 0 0 .554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 0 1 .923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/></svg>Support me</a>
-  <p>Not affiliated with Riot Games</p>
-</footer>
+<footer><span class="l">Windows 10 and 11 · Free and open source</span><a class="support" data-paypal href="https://paypal.me/yassinemagri" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.3-9.4C1.5 8.3 3.4 5 6.6 5c2 0 3.6 1.1 5.4 3.2C13.800 6.100 15.400 5 17.400 5c3.200 0 5.100 3.300 3.900 6.600C19.500 16.400 12 21 12 21z"/></svg>Support me</a><span class="r">Not affiliated with Riot Games</span></footer>
 </div>
-<script src="/assets/app.js?v=4"></script><script src="/assets/frame.js?v=4"></script><script src="/assets/quotes.js?v=4"></script>
+<script src="/assets/app.js"></script><script src="/assets/frame.js"></script>
 </body></html>
