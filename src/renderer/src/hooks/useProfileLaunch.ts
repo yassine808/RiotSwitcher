@@ -17,6 +17,8 @@ export interface LaunchResult {
   step?: string;
   code?: string;
   pid?: number;
+  /** The backend already has this launch in flight; nothing was restarted. */
+  skipped?: boolean;
 }
 
 export interface UseProfileLaunch {
@@ -33,6 +35,10 @@ export function useProfileLaunch(): UseProfileLaunch {
   const [progress, setProgress] = useState<LaunchProgress | null>(null);
   const launchedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const launchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // State updates are asynchronous: two clicks in the same tick both read
+  // "idle" before React re-renders. This ref closes that gap so one double-click
+  // sends exactly one launch_profile request.
+  const inFlightRef = useRef(false);
 
   useEffect(() => {
     const unsub = onEvent("profile_switch_progress", (params) => {
@@ -63,7 +69,8 @@ export function useProfileLaunch(): UseProfileLaunch {
 
   const launch = useCallback(
     async (name: string) => {
-      if (launchState !== "idle") return undefined;
+      if (inFlightRef.current || launchState !== "idle") return undefined;
+      inFlightRef.current = true;
       setLaunchState("launching");
       setLaunchingProfile(name);
       setProgress({ step: "start", status: "pending", message: "Killing processes…" });
@@ -75,6 +82,15 @@ export function useProfileLaunch(): UseProfileLaunch {
       }, 30_000);
       try {
         const result = await call<LaunchResult>("launch_profile", { name });
+        if (result?.skipped) {
+          // The backend already has this profile running or launching. Do not
+          // report a failure: the original launch owns the state.
+          if (launchTimeoutRef.current) clearTimeout(launchTimeoutRef.current);
+          setLaunchState("idle");
+          setLaunchingProfile(null);
+          setProgress(null);
+          return result;
+        }
         if (result?.ok === false) {
           const msg = result.error || "Launch failed";
           if (result.code === "valorant_running") {
@@ -98,6 +114,8 @@ export function useProfileLaunch(): UseProfileLaunch {
         setProgress({ step: "launch", status: "failed", message: String(e) });
         setLaunchState("idle");
         return { ok: false, error: String(e) };
+      } finally {
+        inFlightRef.current = false;
       }
     },
     [call, launchState],

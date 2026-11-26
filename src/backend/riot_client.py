@@ -32,10 +32,13 @@ LAUNCH_PATCHLINE = "live"  # fallback when the client's install record is unread
 # sometimes never presses Play (seen in the client log: the VALORANT page loads,
 # no "product-launcher: Launch starting" follows). Waiting for Riot costs
 # 10-20 s even when it does work, so the watchdog does not wait: the moment the
-# client's local API answers, it asks the product launcher itself. A client that
-# is not ready yet rejects the request; the retry covers that.
+# client's local API answers, it asks the product launcher itself. A request the
+# client rejects is retried with a short backoff. A request it accepts is never
+# repeated: re-posting while the client is updating is what kept the update from
+# finishing, because every POST asked the updater to start the game again.
 PRODUCT_LAUNCH_RETRY_S = 1.0
-PRODUCT_LAUNCH_MAX_ATTEMPTS = 60
+PRODUCT_LAUNCH_RETRY_MAX_S = 10.0
+PRODUCT_LAUNCH_MAX_ATTEMPTS = 10
 PRODUCT_LAUNCH_POLL_S = 0.2
 # The client stops answering while it boots; a 5 s socket timeout would turn
 # every poll into a 5 s stall and push the retry out with it. Short calls keep
@@ -44,8 +47,6 @@ PRODUCT_LAUNCH_API_TIMEOUT_S = 0.5
 PRODUCT_LAUNCH_TIMEOUT_S = 150.0
 # The client returns this when the product is already being launched.
 HTTP_LOCKED = 423
-# If a 423 never turns into a session, start posting again after this long.
-PRODUCT_LAUNCH_RELOCK_S = 20.0
 
 # Riot's canonical install manifest and metadata YAML.
 RIOT_INSTALLS_JSON = r"C:/ProgramData/Riot Games/RiotClientInstalls.json"
@@ -103,7 +104,10 @@ class _ProductLaunch:
         self.attempts = 0
         self.last_attempt = 0.0
         self.resolved = False
-        self.launching = False
+        # The client accepted the request; it owns the launch from here.
+        self.accepted = False
+        self.retry_at = 0.0
+        self.retry_delay = PRODUCT_LAUNCH_RETRY_S
         self.status = 0
 
     def elapsed(self, now):
@@ -116,18 +120,14 @@ class _ProductLaunch:
             timeout=PRODUCT_LAUNCH_API_TIMEOUT_S,
         ):
             return True
-        # A 423 says the client is already starting the product; stop
-        # re-posting, but fall back to retrying if it never appears.
-        if self.launching and now - self.last_attempt >= PRODUCT_LAUNCH_RELOCK_S:
-            self.launching = False
         if self._request_due(now):
             self._ask(port, password, now)
         return False
 
     def _request_due(self, now):
-        if self.launching or self.attempts >= PRODUCT_LAUNCH_MAX_ATTEMPTS:
+        if self.accepted or self.attempts >= PRODUCT_LAUNCH_MAX_ATTEMPTS:
             return False
-        return self.attempts == 0 or now - self.last_attempt >= PRODUCT_LAUNCH_RETRY_S
+        return now >= self.retry_at
 
     def _ask(self, port, password, now):
         self.attempts += 1
@@ -141,7 +141,12 @@ class _ProductLaunch:
             f"after {self.elapsed(now):.1f}s"
         )
         if 200 <= self.status < 300 or self.status == HTTP_LOCKED:
-            self.launching = True
+            # The client is starting the game (or already was). Do not post
+            # again: a second request during an update can restart it.
+            self.accepted = True
+        else:
+            self.retry_at = now + self.retry_delay
+            self.retry_delay = min(self.retry_delay * 2, PRODUCT_LAUNCH_RETRY_MAX_S)
         if not self.resolved and self.status:
             # The client answered, so its catalogue is readable.
             self._resolve(port, password)
@@ -214,6 +219,10 @@ class RiotClientManager:
         self._jobs = []
         self._last_error = None
         self._listener = None
+        # Set when the launch watchdog sees the game session. The switch flow
+        # uses it to stop treating a launch as pending once the game is up.
+        self._launch_state_lock = threading.Lock()
+        self._product_started = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -398,6 +407,10 @@ class RiotClientManager:
             )
         except OSError as exc:
             raise RiotClientError(f"Failed to launch Riot Client: {exc}") from exc
+        # A new launch invalidates the previous watchdog's result, including a
+        # client-only launch that has no watchdog.
+        with self._launch_state_lock:
+            self._product_started = False
         if confirm_product and product == LAUNCH_PRODUCT_VALORANT:
             threading.Thread(
                 target=self._confirm_product_launch,
@@ -414,10 +427,11 @@ class RiotClientManager:
         not wait for that. Polls the client's local API, which reports the real
         product session (``productId``/``patchlineId``) - more reliable than
         guessing from the process table. The product launcher endpoint is called
-        on the first poll that has credentials (there is no grace window), then
-        retried until the session appears or the timeout expires. A ``423``
-        answer means the client is already starting the product, so it stops
-        re-posting instead of fighting Riot's own auto-launch.
+        on the first poll that has credentials (there is no grace window). A
+        request the client rejects is retried with a short backoff; a request it
+        accepts (2xx or ``423 Locked``) is never repeated, because another POST
+        while the client is updating restarts the update. The loop keeps
+        watching for the product session until the timeout expires.
 
         Lockfile credentials are re-read on every poll and must belong to the
         client this launch spawned (``client_pid``). The previous client's
@@ -431,14 +445,25 @@ class RiotClientManager:
         started_at = time.monotonic()
         deadline = started_at + PRODUCT_LAUNCH_TIMEOUT_S
         launch = _ProductLaunch(product, patchline, started_at)
+        next_game_check = started_at
         while time.monotonic() < deadline:
+            now = time.monotonic()
+            # If the game is already open, asking the client to start it again
+            # is exactly the request that piles up behind a slow update.
+            if now >= next_game_check:
+                next_game_check = now + 1.0
+                if any(rp.is_running(name) for name in rp.VALORANT_PROCESSES):
+                    _log("watchdog: VALORANT is already running; not requesting a launch")
+                    return
             credentials = local_api.read_credentials(client_pid=client_pid)
-            if credentials and launch.poll(credentials[0], credentials[1], time.monotonic()):
+            if credentials and launch.poll(credentials[0], credentials[1], now):
+                with self._launch_state_lock:
+                    self._product_started = True
                 if launch.attempts:
                     _log(
                         f"watchdog: {launch.product}.{launch.patchline} is up after "
                         f"{launch.attempts} launch request(s), "
-                        f"{launch.elapsed(time.monotonic()):.1f}s after spawn"
+                        f"{launch.elapsed(now):.1f}s after spawn"
                     )
                 return
             time.sleep(PRODUCT_LAUNCH_POLL_S)
@@ -446,6 +471,11 @@ class RiotClientManager:
             f"watchdog: gave up on {launch.product}.{launch.patchline} after "
             f"{launch.attempts} launch request(s), last status={launch.status}"
         )
+
+    def product_started(self):
+        """True once the last profile launch's watchdog saw the game session."""
+        with self._launch_state_lock:
+            return self._product_started
 
     def is_running(self):
         """True while any known Riot process is running."""

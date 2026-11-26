@@ -92,6 +92,20 @@ describe("HomeView VALORANT confirmation", () => {
     expect(calls).toContain("quit_valorant");
   });
 
+  it("does not ask to quit the game when the profile is already running", async () => {
+    callMock.mockImplementation(async (method: string) => {
+      if (method === "get_profiles") return [makeProfile(true)];
+      if (method === "launch_profile") return { ok: true, skipped: true, code: "already_running" };
+      return null;
+    });
+
+    render(<HomeView />);
+    fireEvent.click(await screen.findByRole("button", { name: /^running$/i }));
+
+    await waitFor(() => expect(callMock).toHaveBeenCalledWith("launch_profile", { name: "Alpha#EUW" }));
+    expect(screen.queryByText("Quit VALORANT?")).toBeNull();
+  });
+
   it("does not ask to quit the game when nothing is blocked", async () => {
     callMock.mockImplementation(async (method: string) => {
       if (method === "get_profiles") return [makeProfile(true)];

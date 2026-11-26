@@ -118,6 +118,18 @@ export default function HomeView() {
   const handleLaunch = useCallback(
     async (name: string) => {
       const result = await launch(name);
+      if (result?.skipped) {
+        // A double-click or a second shortcut press while the first launch is
+        // still starting. Nothing was restarted; say so instead of staying
+        // silent, otherwise the user clicks again.
+        toast.dismiss("launch");
+        toast.show({
+          kind: "info",
+          title: result.code === "already_running" ? "Already running" : "Launch already in progress",
+          message: result.code === "already_running" ? `${name} is already open` : `${name} is still starting`,
+        });
+        return;
+      }
       if (result?.ok === false && result.code === "valorant_running") {
         toast.dismiss("launch");
         setQuitError("");

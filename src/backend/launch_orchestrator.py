@@ -13,11 +13,27 @@ through a listener callback that the backend fans out as IPC events.
 """
 
 
+import threading
+import time
+
 import riot_processes as rp
 from riot_client import RiotClientError
 
 # Machine-readable reason the UI turns into the "Quit VALORANT?" dialog.
 VALORANT_RUNNING = "valorant_running"
+# Machine-readable results for a request that is deliberately not repeated.
+ALREADY_RUNNING = "already_running"
+LAUNCH_PENDING = "launch_pending"
+LAUNCH_IN_PROGRESS = "launch_in_progress"
+
+# A launch stays pending until the game is up, the Riot Client is gone, or
+# this window expires. Relaunching inside it kills a client that may be
+# downloading an update, which restarts the update and loops forever.
+LAUNCH_PENDING_TIMEOUT_S = 300.0
+# The spawned client takes a moment to appear in the process table. Do not
+# treat "not running yet" as "the launch failed" during that gap: a queued
+# second click would restart it.
+LAUNCH_PENDING_PROCESS_GRACE_S = 5.0
 
 
 class LaunchOrchestrator:
@@ -28,6 +44,13 @@ class LaunchOrchestrator:
         self.config = config
         self.league = league
         self._listener = None
+        # One switch at a time. The message loop already runs handlers
+        # sequentially; this also covers a shortcut or another window calling
+        # switch_to from a second thread.
+        self._switch_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._pending_profile = ""
+        self._pending_at = 0.0
 
     def set_listener(self, callback):
         self._listener = callback
@@ -53,6 +76,55 @@ class LaunchOrchestrator:
 
     def _install_dir(self):
         return self.riot.ensure_location()
+
+    def _valorant_running(self):
+        return any(rp.is_running(name) for name in rp.VALORANT_PROCESSES)
+
+    def _riot_client_running(self):
+        return any(rp.is_running(name) for name in rp.RIOT_CLIENT_PROCESSES)
+
+    def _mark_launch_pending(self, profile_name):
+        with self._state_lock:
+            self._pending_profile = profile_name
+            self._pending_at = time.monotonic()
+
+    def _clear_launch_pending(self):
+        with self._state_lock:
+            self._pending_profile = ""
+            self._pending_at = 0.0
+
+    def _pending_launch(self):
+        """Profile of a launch that is still coming up, or "".
+
+        A double-click sends more than one request, and the UI returns to
+        "idle" while the Riot Client is still booting or updating. Treating
+        that window as "not launching" restarts the client and the update,
+        so a launch stays pending until the game is up, the client is gone,
+        or the timeout expires.
+        """
+        with self._state_lock:
+            profile = self._pending_profile
+            started_at = self._pending_at
+        if not profile:
+            return ""
+        # Once the watchdog has seen the game session, the launch is no longer
+        # pending: the user may close the game and start it again.
+        product_started = getattr(self.riot, "product_started", None)
+        if callable(product_started):
+            try:
+                if product_started() is True:
+                    self._clear_launch_pending()
+                    return ""
+            except Exception:  # noqa: BLE001 - the guard must not break a switch
+                pass
+        elapsed = time.monotonic() - started_at
+        if elapsed >= LAUNCH_PENDING_TIMEOUT_S:
+            self._clear_launch_pending()
+            return ""
+        if elapsed >= LAUNCH_PENDING_PROCESS_GRACE_S and not self._riot_client_running():
+            self._clear_launch_pending()
+            return ""
+        return profile
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -130,11 +202,41 @@ class LaunchOrchestrator:
         # VALORANT, so confirm the product actually started (Riot drops its own
         # auto-launch request now and then).
         pid = self.riot.launch_client(confirm_product=True)
+        # The client is up but the game may still be starting (or the client
+        # may be updating itself). Keep the profile pending so a second click
+        # does not kill it and start over.
+        self._mark_launch_pending(profile_name)
         self._emit("launch", "done", "Riot Client launched", pid=pid)
         return {"ok": True, "pid": pid, "profile": profile_name}
 
     def switch_to(self, profile_name):
-        """Run the full switch sequence and return a summary dict."""
+        """Run the full switch sequence and return a summary dict.
+
+        A repeated request for the profile that is already running or still
+        launching is acknowledged and skipped. That is what stops a
+        double-click from restarting the Riot Client (and its update) over and
+        over.
+        """
+        running_profile = str(self.config.get("LastRunningProfile", "") or "")
+        if self._valorant_running():
+            self._clear_launch_pending()
+            if running_profile and running_profile == profile_name:
+                self._emit("switch", "done", f"{profile_name} is already running")
+                return {"ok": True, "skipped": True, "code": ALREADY_RUNNING, "profile": profile_name}
+        elif self._pending_launch() == profile_name:
+            self._emit("switch", "done", f"{profile_name} is already launching")
+            return {"ok": True, "skipped": True, "code": LAUNCH_PENDING, "profile": profile_name}
+
+        if not self._switch_lock.acquire(blocking=False):
+            self._emit("switch", "done", "A launch is already in progress")
+            return {"ok": True, "skipped": True, "code": LAUNCH_IN_PROGRESS, "profile": profile_name}
+        try:
+            return self._switch_locked(profile_name)
+        finally:
+            self._switch_lock.release()
+
+    def _switch_locked(self, profile_name):
+        """The actual switch, with duplicate requests already filtered out."""
         self._emit("switch", "started", f"Switching to {profile_name}")
 
         install_dir = self._install_dir()
@@ -155,6 +257,9 @@ class LaunchOrchestrator:
             ok, error, code = self._kill_riot_processes()
             if not ok:
                 return {"ok": False, "step": "kill", "error": error, "code": code}
+            # The client that the previous launch started is gone; the next
+            # successful launch records its own pending profile.
+            self._clear_launch_pending()
 
             ok, error = self._save_current_session(current_active, profile_name, install_dir)
             if not ok:
@@ -183,6 +288,7 @@ class LaunchOrchestrator:
         """
         self._emit("stop", "started", "Stopping Riot Client")
         rp.shutdown_stop()
+        self._clear_launch_pending()
         self._emit("stop", "done", "Riot Client stopped")
         return {"ok": True}
 
@@ -197,6 +303,7 @@ class LaunchOrchestrator:
         if not rp.terminate_valorant():
             self._emit("quit", "failed", "VALORANT is still running")
             return {"ok": False, "error": "VALORANT is still running"}
+        self._clear_launch_pending()
         self._emit("quit", "done", "VALORANT closed")
         return {"ok": True}
 
@@ -211,6 +318,7 @@ class LaunchOrchestrator:
         ok, error, code = self._kill_riot_processes()
         if not ok:
             return {"ok": False, "step": "kill", "error": error, "code": code}
+        self._clear_launch_pending()
 
         try:
             install_dir = self._install_dir()

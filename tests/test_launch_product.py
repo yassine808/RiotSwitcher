@@ -154,11 +154,13 @@ class TestLaunchClient(unittest.TestCase):
 
 class TestProductWatchdog(unittest.TestCase):
     def _run(self, *, credentials, has_product, launch_status, timeout=None,
-             resolved=("valorant", "live")):
+             resolved=("valorant", "live"), valorant_running=False):
         manager = riot_client.RiotClientManager(_config(riot_client.LAUNCH_PRODUCT_VALORANT))
+        self._manager = manager
         fake_time = FakeTime()
         with contextlib.ExitStack() as stack:
             stack.enter_context(mock.patch.object(riot_client, "time", fake_time))
+            stack.enter_context(mock.patch.object(riot_client.rp, "is_running", return_value=valorant_running))
             stack.enter_context(mock.patch.object(riot_client.local_api, "read_credentials", side_effect=credentials))
             stack.enter_context(mock.patch.object(riot_client.local_api, "resolve_product", return_value=resolved))
             stack.enter_context(mock.patch.object(riot_client.local_api, "has_product", side_effect=has_product))
@@ -201,6 +203,7 @@ class TestProductWatchdog(unittest.TestCase):
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(mock.patch.object(riot_client, "time", clock))
+            stack.enter_context(mock.patch.object(riot_client.rp, "is_running", return_value=False))
             stack.enter_context(mock.patch.object(riot_client.local_api, "read_credentials",
                                                   return_value=(1234, "pw")))
             stack.enter_context(mock.patch.object(riot_client.local_api, "resolve_product",
@@ -246,6 +249,53 @@ class TestProductWatchdog(unittest.TestCase):
             timeout=10,
         )
         self.assertEqual(launch.call_count, 1)
+
+    def test_stops_posting_after_an_accepted_request(self):
+        """A 2xx means the client owns the launch; reposting restarts updates."""
+        launch = self._run(
+            credentials=lambda *a, **k: (1234, "pw"),
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: 200,
+            timeout=60,
+        )
+        self.assertEqual(launch.call_count, 1)
+
+    def test_backs_off_after_a_rejected_request(self):
+        """A client that is still booting must not get a POST every second."""
+        launch = self._run(
+            credentials=lambda *a, **k: (1234, "pw"),
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: 404,
+            timeout=30,
+        )
+        # Attempts at 0, 1, 3, 7, 15 and 25 seconds, then the timeout wins.
+        self.assertEqual(launch.call_count, 6)
+
+    def test_does_not_request_a_launch_when_the_game_is_already_running(self):
+        launch = self._run(
+            credentials=lambda *a, **k: (1234, "pw"),
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: 200,
+            valorant_running=True,
+        )
+        launch.assert_not_called()
+
+    def test_records_that_the_game_started(self):
+        self._run(
+            credentials=lambda *a, **k: (1234, "pw"),
+            has_product=lambda *a, **k: True,
+            launch_status=lambda *a, **k: 200,
+        )
+        self.assertTrue(self._manager.product_started())
+
+    def test_product_started_is_false_when_the_game_never_appears(self):
+        self._run(
+            credentials=lambda *a, **k: (1234, "pw"),
+            has_product=lambda *a, **k: False,
+            launch_status=lambda *a, **k: 200,
+            timeout=5,
+        )
+        self.assertFalse(self._manager.product_started())
 
     def test_ignores_a_lockfile_from_the_previous_client(self):
         """A stale lockfile (other PID) is not the client this launch spawned."""
@@ -295,6 +345,101 @@ class TestOrchestratorConfirmsProduct(unittest.TestCase):
 
         riot.launch_client.assert_called_once_with(confirm_product=True)
         self.assertEqual(result["pid"], 99)
+
+
+class TestOrchestratorLaunchGuard(unittest.TestCase):
+    """A repeated launch must not kill the client that is still starting."""
+
+    def _orchestrator(self, *, running_profile="", valorant=False, client=True):
+        riot = mock.MagicMock()
+        riot.launch_client.return_value = 99
+        riot.ensure_location.return_value = "C:/Riot Client"
+        config = mock.MagicMock()
+        config.get.side_effect = lambda key, default=None: (
+            running_profile if key == "LastRunningProfile" else default
+        )
+        sessions = mock.MagicMock()
+        sessions.session_has_login.return_value = True
+        profiles = mock.MagicMock()
+        profiles.get.return_value = {"directory_name": "one"}
+        orchestrator = launch_orchestrator.LaunchOrchestrator(riot, sessions, profiles, config)
+
+        def is_running(name):
+            if name in launch_orchestrator.rp.VALORANT_PROCESSES:
+                return valorant
+            if name in launch_orchestrator.rp.RIOT_CLIENT_PROCESSES:
+                return client
+            return False
+
+        running = mock.patch.object(launch_orchestrator.rp, "is_running", side_effect=is_running)
+        running.start()
+        self.addCleanup(running.stop)
+        stop = mock.patch.object(launch_orchestrator.rp, "shutdown_stop", return_value=True)
+        stop.start()
+        self.addCleanup(stop.stop)
+        return orchestrator, riot
+
+    def test_second_launch_of_the_same_profile_is_skipped(self):
+        orchestrator, riot = self._orchestrator()
+
+        first = orchestrator.switch_to("One")
+        second = orchestrator.switch_to("One")
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["skipped"])
+        self.assertEqual(second["code"], launch_orchestrator.LAUNCH_PENDING)
+        riot.launch_client.assert_called_once()
+
+    def test_switching_to_another_profile_is_still_allowed(self):
+        orchestrator, riot = self._orchestrator()
+
+        orchestrator.switch_to("One")
+        result = orchestrator.switch_to("Two")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(riot.launch_client.call_count, 2)
+
+    def test_running_profile_is_not_launched_again(self):
+        orchestrator, riot = self._orchestrator(running_profile="One", valorant=True)
+
+        result = orchestrator.switch_to("One")
+
+        self.assertTrue(result["skipped"])
+        self.assertEqual(result["code"], launch_orchestrator.ALREADY_RUNNING)
+        riot.launch_client.assert_not_called()
+
+    def test_other_profile_still_asks_to_quit_the_game(self):
+        orchestrator, riot = self._orchestrator(running_profile="One", valorant=True)
+
+        result = orchestrator.switch_to("Two")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], launch_orchestrator.VALORANT_RUNNING)
+        riot.launch_client.assert_not_called()
+
+    def test_queued_second_click_is_skipped_before_the_client_shows_up(self):
+        """The spawned client is not in the process table for a moment."""
+        orchestrator, riot = self._orchestrator(client=False)
+
+        orchestrator.switch_to("One")
+        second = orchestrator.switch_to("One")
+
+        self.assertTrue(second["skipped"])
+        riot.launch_client.assert_called_once()
+
+    def test_pending_launch_clears_when_the_client_is_gone(self):
+        orchestrator, _ = self._orchestrator(client=False)
+        orchestrator._mark_launch_pending("One")
+        orchestrator._pending_at -= launch_orchestrator.LAUNCH_PENDING_PROCESS_GRACE_S + 1
+
+        self.assertEqual(orchestrator._pending_launch(), "")
+
+    def test_pending_launch_clears_after_the_game_started(self):
+        orchestrator, riot = self._orchestrator()
+        orchestrator._mark_launch_pending("One")
+        riot.product_started.return_value = True
+
+        self.assertEqual(orchestrator._pending_launch(), "")
 
 
 if __name__ == "__main__":
