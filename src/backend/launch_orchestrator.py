@@ -28,8 +28,10 @@ LAUNCH_IN_PROGRESS = "launch_in_progress"
 
 # A launch stays pending until the game is up, the Riot Client is gone, or
 # this window expires. Relaunching inside it kills a client that may be
-# downloading an update, which restarts the update and loops forever.
-LAUNCH_PENDING_TIMEOUT_S = 300.0
+# downloading an update, which restarts the update and loops forever. The
+# window is generous because a slow update is exactly the case it protects;
+# the client being gone (crash/close) clears it much sooner.
+LAUNCH_PENDING_TIMEOUT_S = 600.0
 # The spawned client takes a moment to appear in the process table. Do not
 # treat "not running yet" as "the launch failed" during that gap: a queued
 # second click would restart it.
