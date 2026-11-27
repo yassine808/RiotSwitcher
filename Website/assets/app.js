@@ -1,6 +1,7 @@
 /* ---------- config: change these in one place ---------- */
 const CONFIG = {
-  feed: "https://pub-6d3d6d22222242dab87967c474f39ada.r2.dev", // public R2 bucket: riotswitcher-updates
+  // Flat view of the newest GitHub release: latest.yml, Setup and portable.
+  feed: "https://github.com/yassine808/RiotSwitcher/releases/latest/download",
   paypal: "https://paypal.me/yassinemagri",
 };
 
@@ -16,9 +17,10 @@ const CONFIG = {
     const version = (yml.match(/^version:\s*['"]?([^'"\s]+)/m) || [])[1];
     const path = (yml.match(/^path:\s*['"]?([^'"\n]+?)['"]?\s*$/m) || [])[1];
     if (!version) throw new Error("no version");
-    return { version, setup: `${CONFIG.feed}/${path || `RiotSwitcher-Setup-${version}.exe`}`, portable: `${CONFIG.feed}/RiotSwitcher-${version}-portable.exe` };
+    const url = (name) => (/^https?:\/\//.test(name) ? name : `${CONFIG.feed}/${name}`);
+    return { version, setup: url(path || `RiotSwitcher-Setup-${version}.exe`), portable: url(`RiotSwitcher-${version}-portable.exe`) };
   };
-  try { // 1) the Pages Function, 2) the bucket directly. If both fail the /download/* redirect links still work.
+  try { // 1) the Pages Function, 2) the release directly. If both fail the /download/* redirect links still work.
     const r = await fetch("/api/latest"); if (!r.ok) throw 0; set(await r.json());
   } catch {
     try { const r = await fetch(CONFIG.feed + "/latest.yml"); set(parse(await r.text())); } catch { /* keep fallbacks */ }
