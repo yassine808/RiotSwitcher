@@ -255,16 +255,24 @@ export default function SettingsView() {
       blurb: "What happens when you press START.",
       title: "Riot Client",
       rows: (
-        <SettingDropdown
-          label="Launch Product"
-          description="Auto-launch VALORANT or only the Riot Client"
-          value={String(config.LaunchProduct ?? "valorant")}
-          options={[
-            { value: "valorant", label: "VALORANT" },
-            { value: "riot", label: "Riot Client" },
-          ]}
-          onChange={(v) => update("LaunchProduct", v)}
-        />
+        <>
+          <SettingDropdown
+            label="Launch Product"
+            description="Auto-launch VALORANT or only the Riot Client"
+            value={String(config.LaunchProduct ?? "valorant")}
+            options={[
+              { value: "valorant", label: "VALORANT" },
+              { value: "riot", label: "Riot Client" },
+            ]}
+            onChange={(v) => update("LaunchProduct", v)}
+          />
+          <SettingToggle
+            label="Close After Launch"
+            description="Quit RiotSwitcher once the profile has launched"
+            checked={!!config.CloseAfterLaunch}
+            onChange={(v) => update("CloseAfterLaunch", v)}
+          />
+        </>
       ),
     },
     {

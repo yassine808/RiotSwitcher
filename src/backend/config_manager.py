@@ -24,6 +24,8 @@ class ConfigManager:
             "RiotClientLocation": "",
             # "riot" (client only) or "valorant" (auto-launch VALORANT).
             "LaunchProduct": "valorant",
+            # Quit RiotSwitcher once a profile launch no longer needs it.
+            "CloseAfterLaunch": False,
             # Shared game-settings sync toggle.
             "SyncGameSettings": False,
             # Source of shared game settings (profile directory name).

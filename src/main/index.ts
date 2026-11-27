@@ -13,6 +13,7 @@ import {
 } from "./portableUpdate";
 import { registerCardScheme, handleCardProtocol, listAnimatedCards, animatedCardDir } from "./playercards";
 import { createProfileShortcut, launchProfileFromArgv } from "./shortcuts";
+import { closeAfterLaunchEnabled, createCloseAfterLaunch, isCompletedLaunch } from "./launchClose";
 
 // Bound the on-disk log. electron-log rotates the current file to `<name>.old.log`
 // once it passes this size, so a long-running install cannot grow it forever.
@@ -23,6 +24,16 @@ let appWindow: AppWindow | null = null;
 // Set from `--profile`, which a desktop shortcut passes on start-up. Held until
 // the backend reports it is ready, then sent once.
 let pendingProfileLaunch = launchProfileFromArgv(process.argv);
+
+// CloseAfterLaunch: the window goes away as soon as the launch succeeds, and
+// the process exits when the backend's product watchdog no longer needs it.
+const closeAfterLaunch = createCloseAfterLaunch({
+  hide: () => appWindow?.win.hide(),
+  isVisible: () => Boolean(appWindow?.win.isVisible()),
+  // Deferred: the reply to `launch_profile` must reach the renderer before the
+  // app starts tearing itself down.
+  quit: () => setImmediate(() => app.quit()),
+});
 
 // Without a handler a rejection (e.g. a failed window load) is swallowed and
 // the app sits invisible with no trace of why. Log it instead.
@@ -42,9 +53,23 @@ if (!gotLock) {
 function launchProfile(name: string): void {
   const profile = name.trim();
   if (!profile || !python) return;
-  void python.call("launch_profile", { name: profile }).catch((err) => {
-    console.error(`[launcher] could not launch '${profile}':`, err);
-  });
+  closeAfterLaunch.reset();
+  void python
+    .call("launch_profile", { name: profile })
+    .then(maybeCloseAfterLaunch)
+    .catch((err) => {
+      console.error(`[launcher] could not launch '${profile}':`, err);
+    });
+}
+
+async function maybeCloseAfterLaunch(result: unknown): Promise<void> {
+  if (!isCompletedLaunch(result)) return;
+  try {
+    if (closeAfterLaunchEnabled(await python?.call("get_config"))) closeAfterLaunch.arm();
+  } catch (err) {
+    // A settings read must never break a launch; the window just stays open.
+    log.warn("[launcher] could not read CloseAfterLaunch:", err);
+  }
 }
 
 function setup(): void {
@@ -81,6 +106,10 @@ function setup(): void {
       const profile = pendingProfileLaunch;
       pendingProfileLaunch = "";
       launchProfile(profile);
+    });
+    // The product watchdog has let go of the launch; CloseAfterLaunch may exit.
+    python.onEvent((event) => {
+      if (event === "launch_armed") closeAfterLaunch.launchArmed();
     });
     python.start();
 
@@ -138,6 +167,7 @@ function setup(): void {
   app.on("before-quit", () => {
     // Covers every quit path (tray, OS shutdown, installer) not just the tray
     // item, so a close-to-tray window can never block the exit.
+    closeAfterLaunch.cancel();
     appWindow?.permitClose();
     python?.stop();
   });
@@ -226,8 +256,10 @@ function setupIpc(): void {
 
   ipcMain.handle("python:call", async (_event, method: string, params: Record<string, unknown> = {}) => {
     if (!python) throw new Error("Python backend not running");
+    if (method === "launch_profile") closeAfterLaunch.reset();
     const result = await python.call(method, params);
     syncTrayBehavior(method, params);
+    if (method === "launch_profile") void maybeCloseAfterLaunch(result);
     return result;
   });
 

@@ -622,6 +622,10 @@ def main():
     riot.set_listener(lambda status: protocol.send_event(
         "riot_client_status", {"status": status}
     ))
+    # CloseAfterLaunch: the shell hides the window on a successful launch and
+    # quits when this arrives. It must come from the backend, because the
+    # product watchdog that starts VALORANT lives in this process.
+    riot.set_launch_listener(lambda: protocol.send_event("launch_armed", {}))
     sessions = SessionManager(os.path.join(data_dir, "profiles"))
     try:
         # Upgrade path: seal session backups written before encryption existed.

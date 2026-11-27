@@ -223,6 +223,13 @@ class RiotClientManager:
         # uses it to stop treating a launch as pending once the game is up.
         self._launch_state_lock = threading.Lock()
         self._product_started = False
+        # Called once per profile launch, when the client owns the launch and
+        # this process no longer has to stay alive for it (CloseAfterLaunch).
+        self._launch_listener = None
+        self._launch_armed = False
+        # Incremented per launch so a watchdog left over from an earlier launch
+        # cannot arm (and close) the current one.
+        self._launch_seq = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -231,6 +238,10 @@ class RiotClientManager:
     def set_listener(self, listener):
         """listener(status) is called after each kill/wait transition."""
         self._listener = listener
+
+    def set_launch_listener(self, listener):
+        """listener() is called once per profile launch, when it is safe to exit."""
+        self._launch_listener = listener
 
     def get_location(self):
         return str(self._config.get("RiotClientLocation", "") or "")
@@ -411,15 +422,22 @@ class RiotClientManager:
         # client-only launch that has no watchdog.
         with self._launch_state_lock:
             self._product_started = False
+            self._launch_armed = False
+            self._launch_seq += 1
+            seq = self._launch_seq
         if confirm_product and product == LAUNCH_PRODUCT_VALORANT:
             threading.Thread(
                 target=self._confirm_product_launch,
-                args=(product, patchline, proc.pid),
+                args=(product, patchline, proc.pid, seq),
                 daemon=True,
             ).start()
+        elif confirm_product:
+            # Client-only launch: nothing outlives this call, so the shell may
+            # close as soon as the spawn is done.
+            self._arm_launch(seq)
         return proc.pid
 
-    def _confirm_product_launch(self, product, patchline, client_pid=None):
+    def _confirm_product_launch(self, product, patchline, client_pid=None, seq=None):
         """Start the product as soon as the client's local API answers.
 
         Runs on a daemon thread so the launch request returns as soon as the
@@ -446,31 +464,66 @@ class RiotClientManager:
         deadline = started_at + PRODUCT_LAUNCH_TIMEOUT_S
         launch = _ProductLaunch(product, patchline, started_at)
         next_game_check = started_at
-        while time.monotonic() < deadline:
-            now = time.monotonic()
-            # If the game is already open, asking the client to start it again
-            # is exactly the request that piles up behind a slow update.
-            if now >= next_game_check:
-                next_game_check = now + 1.0
-                if any(rp.is_running(name) for name in rp.VALORANT_PROCESSES):
-                    _log("watchdog: VALORANT is already running; not requesting a launch")
+        try:
+            while time.monotonic() < deadline:
+                now = time.monotonic()
+                # If the game is already open, asking the client to start it again
+                # is exactly the request that piles up behind a slow update.
+                if now >= next_game_check:
+                    next_game_check = now + 1.0
+                    if any(rp.is_running(name) for name in rp.VALORANT_PROCESSES):
+                        _log("watchdog: VALORANT is already running; not requesting a launch")
+                        return
+                credentials = local_api.read_credentials(client_pid=client_pid)
+                if credentials and launch.poll(credentials[0], credentials[1], now):
+                    with self._launch_state_lock:
+                        self._product_started = True
+                    if launch.attempts:
+                        _log(
+                            f"watchdog: {launch.product}.{launch.patchline} is up after "
+                            f"{launch.attempts} launch request(s), "
+                            f"{launch.elapsed(now):.1f}s after spawn"
+                        )
                     return
-            credentials = local_api.read_credentials(client_pid=client_pid)
-            if credentials and launch.poll(credentials[0], credentials[1], now):
-                with self._launch_state_lock:
-                    self._product_started = True
-                if launch.attempts:
-                    _log(
-                        f"watchdog: {launch.product}.{launch.patchline} is up after "
-                        f"{launch.attempts} launch request(s), "
-                        f"{launch.elapsed(now):.1f}s after spawn"
-                    )
+                if launch.accepted:
+                    # The client owns the launch from here; the remaining polls
+                    # only record in-memory state, so the shell may exit now.
+                    self._arm_launch(seq)
+                time.sleep(PRODUCT_LAUNCH_POLL_S)
+            _log(
+                f"watchdog: gave up on {launch.product}.{launch.patchline} after "
+                f"{launch.attempts} launch request(s), last status={launch.status}"
+            )
+        finally:
+            # Every exit arms the launch: no watchdog run can outlive the point
+            # where closing the app would cancel the game start.
+            self._arm_launch(seq)
+
+    def _arm_launch(self, seq=None):
+        """Report once that the launch no longer needs this process alive.
+
+        ``launch_armed`` is what lets the Electron shell quit after a profile
+        launch: the client owns the product from the first accepted request,
+        and the watchdog's remaining work only updates in-memory state. Called
+        on every watchdog exit (game up, already running, timeout), so a shell
+        waiting to close is never left hanging.
+
+        ``seq`` is the launch this watchdog belongs to. A watchdog from an
+        earlier launch must not arm a newer one that is still starting.
+        """
+        with self._launch_state_lock:
+            if seq is not None and seq != self._launch_seq:
                 return
-            time.sleep(PRODUCT_LAUNCH_POLL_S)
-        _log(
-            f"watchdog: gave up on {launch.product}.{launch.patchline} after "
-            f"{launch.attempts} launch request(s), last status={launch.status}"
-        )
+            if self._launch_armed:
+                return
+            self._launch_armed = True
+            listener = self._launch_listener
+        if listener is None:
+            return
+        try:
+            listener()
+        except Exception:  # noqa: BLE001 - a listener must never break a launch
+            pass
 
     def product_started(self):
         """True once the last profile launch's watchdog saw the game session."""

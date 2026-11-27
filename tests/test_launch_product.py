@@ -126,7 +126,7 @@ class TestLaunchClient(unittest.TestCase):
 
         thread_cls.assert_called_once_with(
             target=manager._confirm_product_launch,
-            args=("valorant", "live", 7),
+            args=("valorant", "live", 7, 1),
             daemon=True,
         )
         thread.start.assert_called_once()
@@ -440,6 +440,121 @@ class TestOrchestratorLaunchGuard(unittest.TestCase):
         riot.product_started.return_value = True
 
         self.assertEqual(orchestrator._pending_launch(), "")
+
+
+class TestLaunchArmed(unittest.TestCase):
+    """CloseAfterLaunch needs a signal that the backend can stop running.
+
+    The app may only exit once the product watchdog has done its job; killing
+    the backend earlier cancels the VALORANT launch it exists to guarantee.
+    """
+
+    def _manager(self, product):
+        manager = riot_client.RiotClientManager(_config(product))
+        manager.ensure_location = mock.MagicMock(return_value=CLIENT_FOLDER)
+        patcher = mock.patch.object(riot_client, "patchline_from_installs", return_value="live")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return manager
+
+    def _spawn(self, manager, confirm_product=True, thread=None):
+        with mock.patch.object(riot_client.os.path, "isfile", return_value=True), \
+                mock.patch.object(riot_client.subprocess, "Popen",
+                                  return_value=mock.MagicMock(pid=7)), \
+                mock.patch.object(riot_client.threading, "Thread", thread or mock.MagicMock()):
+            manager.launch_client(confirm_product=confirm_product)
+
+    def test_client_only_launch_arms_at_once(self):
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_RIOT)
+        armed = mock.MagicMock()
+        manager.set_launch_listener(armed)
+
+        self._spawn(manager)
+
+        armed.assert_called_once_with()
+
+    def test_add_account_launch_never_arms(self):
+        """The Add Account flow is not a profile launch; nothing may close."""
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_RIOT)
+        armed = mock.MagicMock()
+        manager.set_launch_listener(armed)
+
+        self._spawn(manager, confirm_product=False)
+
+        armed.assert_not_called()
+
+    def test_watchdog_arms_once_the_client_accepts_the_request(self):
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_VALORANT)
+        armed = mock.MagicMock()
+        manager.set_launch_listener(armed)
+        clock = FakeTime()
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(riot_client, "time", clock))
+            stack.enter_context(mock.patch.object(riot_client.rp, "is_running", return_value=False))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "read_credentials",
+                                                  return_value=(1234, "pw")))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "has_product",
+                                                  return_value=False))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "launch_product_status",
+                                                  return_value=200))
+            stack.enter_context(mock.patch.object(riot_client, "PRODUCT_LAUNCH_TIMEOUT_S", 5.0))
+            manager._confirm_product_launch("valorant", "live", 7)
+
+        # The game takes 15-40 s to appear; a 2xx already means the client owns
+        # the launch, and the shell must not be kept open waiting for it.
+        armed.assert_called_once_with()
+
+    def test_watchdog_arms_when_it_gives_up(self):
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_VALORANT)
+        armed = mock.MagicMock()
+        manager.set_launch_listener(armed)
+        clock = FakeTime()
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(riot_client, "time", clock))
+            stack.enter_context(mock.patch.object(riot_client.rp, "is_running", return_value=False))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "read_credentials",
+                                                  return_value=(1234, "pw")))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "has_product",
+                                                  return_value=False))
+            stack.enter_context(mock.patch.object(riot_client.local_api, "launch_product_status",
+                                                  return_value=404))
+            stack.enter_context(mock.patch.object(riot_client, "PRODUCT_LAUNCH_TIMEOUT_S", 3.0))
+            manager._confirm_product_launch("valorant", "live", 7)
+
+        armed.assert_called_once_with()
+
+    def test_each_launch_arms_once(self):
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_RIOT)
+        armed = mock.MagicMock()
+        manager.set_launch_listener(armed)
+
+        self._spawn(manager)
+        self._spawn(manager)
+
+        self.assertEqual(armed.call_count, 2)
+
+    def test_a_stale_watchdog_cannot_arm_a_newer_launch(self):
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_RIOT)
+        armed = mock.MagicMock()
+        manager.set_launch_listener(armed)
+        self._spawn(manager)  # launch 1
+        armed.reset_mock()
+        self._spawn(manager)  # launch 2
+        armed.assert_called_once_with()
+
+        armed.reset_mock()
+        manager._arm_launch(1)  # launch 1's watchdog finishing late
+        armed.assert_not_called()
+
+    def test_a_listener_error_never_breaks_the_watchdog(self):
+        manager = self._manager(riot_client.LAUNCH_PRODUCT_RIOT)
+        manager.set_launch_listener(mock.MagicMock(side_effect=RuntimeError("boom")))
+
+        self._spawn(manager)
+
+        self.assertTrue(manager._launch_armed)
 
 
 if __name__ == "__main__":
