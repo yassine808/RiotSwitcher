@@ -1,6 +1,8 @@
 # Node
 node_modules/
 dist/
+!benchmarks/variants/tauri-bare/dist/
+!benchmarks/variants/tauri-bare/dist/index.html
 out/
 .vite/
 *.tsbuildinfo
@@ -22,6 +24,12 @@ venv/
 # Electron
 release/
 *.log
+
+# Benchmark build output (sources and CSV results are tracked)
+benchmarks/variants/*/target/
+benchmarks/variants/*/src-tauri/target/
+benchmarks/variants/*/src-tauri/gen/
+benchmarks/artifacts/
 # electron-vite writes a temp ESM config next to the original during build
 electron.vite.config.*.mjs
 
