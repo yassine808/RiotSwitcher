@@ -28,6 +28,7 @@
     "check:updater-lock": "node scripts/check-updater-lock.mjs",
     "verify:release": "node scripts/verify-release.mjs",
     "verify:feed": "node scripts/verify-feed.mjs",
+    "verify:legacy": "node scripts/verify-legacy-feed.mjs",
     "lint": "eslint src/renderer/src/ src/main/",
     "lint:fix": "eslint src/renderer/src/ src/main/ --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"*.{json,mjs,ts}\" \".github/**/*.{yml,yaml}\"",

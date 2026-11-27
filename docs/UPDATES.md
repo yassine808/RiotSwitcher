@@ -278,8 +278,42 @@ them:
 
 Old clients read the R2 manifests, see the new version, download the installer
 or portable **from GitHub**, and from that version on they read GitHub directly.
-After this one-time bridge, R2 is no longer part of the update path and the
-Cloudflare credentials can be removed from the repository secrets.
+The bucket URL is compiled into builds up to `3.1.23`, so those binaries will
+always ask R2 for that first manifest; it is the only R2 request left. The
+bridge makes that one response name GitHub assets, so the download, the
+sha512/sha256 check and every later check are GitHub. The objects only have to
+stay online until those builds age out; the Cloudflare credentials can be
+removed from the repository secrets.
+
+Verify the bridge at any time:
+
+```powershell
+npm run verify:legacy             # manifests, URLs, hashes and asset sizes
+npm run verify:legacy -- --download   # also hash both GitHub binaries
+```
+
+`scripts/verify-legacy-feed.mjs` reads the legacy manifests the way an old
+client does, then compares them with the `latest.yml` / `latest.json` GitHub
+publishes for the same tag. It fails if a URL points back at Cloudflare, if the
+versions disagree, or if a hash or size differs. It does not require the bridge
+to track new releases: it only has to keep pointing at a published GitHub
+release that old clients can install.
+
+### Antivirus blocks the portable swap
+
+The portable build is not code-signed, so some antivirus products treat the
+downloaded copy as suspicious. Observed with Avast: the file is removed from
+`%APPDATA%\riotswitcher\updates` seconds after the checksum passes, the copy
+next to the portable exe fails, and every later attempt to create that same
+file name is denied (`EPERM`). The window reports `Update install failed:
+could not write next to the portable exe`.
+
+This is a false positive on the unsigned binary, not a feed problem. The
+installed build is unaffected because `electron-updater` uses its own download
+folder and NSIS installer. For the portable, add an exclusion for
+`%APPDATA%\riotswitcher\updates` (or the folder the portable exe lives in) in
+the antivirus, then check for updates again. Code signing the portable is the
+permanent fix.
 
 ## 9. Rules
 
