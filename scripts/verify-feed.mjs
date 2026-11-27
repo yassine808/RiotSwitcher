@@ -48,6 +48,13 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Drops trailing slashes without a regex: the feed is a URL, not a pattern. */
+function withoutTrailingSlashes(url) {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end -= 1;
+  return url.slice(0, end);
+}
+
 /** The feed base, read from the source of truth the app ships. */
 function feedBase() {
   const source = readFileSync(join(ROOT, "src", "main", "updateFeed.ts"), "utf8");
@@ -56,7 +63,7 @@ function feedBase() {
     console.error("[verify-feed] cannot read DEFAULT_FEED_URL from src/main/updateFeed.ts");
     process.exit(1);
   }
-  return match[1].replace(/\/+$/, "");
+  return withoutTrailingSlashes(match[1]);
 }
 
 const current = argvValue("--version", JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version);
@@ -77,48 +84,48 @@ const base = feedBase();
  */
 async function readAsset(name, isCurrent) {
   const deadline = Date.now() + timeoutMs;
-  let lastSaid = "no response";
 
-  for (let attempt = 1; ; attempt += 1) {
+  // Recursion, not a loop: every attempt must finish before the next starts.
+  const attempt = async (n) => {
     const url = `${base}/${name}?t=${Date.now()}`;
     let response;
     try {
       response = await fetch(url, { headers: { "cache-control": "no-cache" }, redirect: "follow" });
     } catch (error) {
-      lastSaid = error.message;
-      if (Date.now() >= deadline) throw new Error(`${name}: ${lastSaid}`);
+      if (Date.now() >= deadline) throw new Error(`${name}: ${error.message}`);
       await sleep(3000);
-      continue;
+      return attempt(n + 1);
     }
 
     if (!response.ok) {
-      lastSaid = `HTTP ${response.status}`;
-      if (Date.now() >= deadline) throw new Error(`${name}: ${lastSaid}`);
+      if (Date.now() >= deadline) throw new Error(`${name}: HTTP ${response.status}`);
       await sleep(3000);
-      continue;
+      return attempt(n + 1);
     }
 
     const text = await response.text();
-    if (isCurrent(text)) {
-      return { text, attempts: attempt };
-    }
+    if (isCurrent(text)) return { text, attempts: n };
 
-    lastSaid = "still not this version";
     if (Date.now() >= deadline) {
-      throw new Error(`${name}: ${lastSaid} after ${attempt} attempt(s)`);
+      throw new Error(`${name}: still not this version after ${n} attempt(s)`);
     }
     await sleep(3000);
-  }
+    return attempt(n + 1);
+  };
+
+  return attempt(1);
 }
 
 /** The `files:` entries electron-builder writes into latest.yml. */
 function parseLatestYml(text) {
   const entries = [];
   for (const line of text.split("\n")) {
-    const url = line.match(/^\s*-\s*url:\s*(.+?)\s*$/);
-    const size = line.match(/^\s+size:\s*(\d+)\s*$/);
-    if (url) entries.push({ url: url[1], size: null });
-    else if (size && entries.length > 0) entries.at(-1).size = Number(size[1]);
+    const trimmed = line.trim();
+    if (trimmed.startsWith("- url:")) {
+      entries.push({ url: trimmed.slice(6).trim(), size: null });
+    } else if (line.startsWith(" ") && trimmed.startsWith("size:") && entries.length > 0) {
+      entries.at(-1).size = Number(trimmed.slice(5).trim());
+    }
   }
   return entries;
 }
@@ -198,13 +205,22 @@ for (const entry of yml ?? []) {
   binaries.push({ name: entry.url, url: `${base}/${entry.url}`, size: entry.size });
 }
 
-for (const binary of binaries) {
-  if (!binary.url) continue;
-  const response = await head(binary.url);
-  if (!check(response.status === 200, `${binary.name} answered HTTP ${response.status} on the feed`)) {
-    continue;
-  }
-  const length = Number(response.headers.get("content-length") ?? -1);
+const inspected = await Promise.all(
+  binaries.map(async (binary) => {
+    if (!binary.url) return null;
+    const response = await head(binary.url);
+    return {
+      binary,
+      status: response.status,
+      length: Number(response.headers.get("content-length") ?? -1),
+    };
+  }),
+);
+
+for (const result of inspected) {
+  if (!result) continue;
+  const { binary, status, length } = result;
+  if (!check(status === 200, `${binary.name} answered HTTP ${status} on the feed`)) continue;
   check(binary.size === length, `${binary.name} is ${length} B on the feed, its manifest says ${binary.size} B`);
   passed.push(`${binary.name} is public (${length} B)`);
 }

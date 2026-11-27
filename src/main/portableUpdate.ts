@@ -281,7 +281,7 @@ export function installPortableUpdate(): void {
   try {
     // Absolute path: resolving cmd.exe through PATH would let a planted
     // directory pick the interpreter that swaps the exe.
-    const cmd = join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe");
+    const cmd = join(process.env.SystemRoot || String.raw`C:\Windows`, "System32", "cmd.exe");
     spawn(cmd, ["/d", "/c", script], {
       detached: true,
       stdio: "ignore",

@@ -52,7 +52,7 @@ function requirePattern(source, pattern, label, failure) {
 }
 
 function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 // 1. The pinned modules. A deliberate change re-pins in the same commit.
@@ -64,7 +64,7 @@ try {
   passed.push("updater modules match updater.lock.json");
 } catch (error) {
   const output = `${error.stdout ?? ""}${error.stderr ?? ""}`
-    .replace(/\r/g, "")
+    .replaceAll("\r", "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -97,12 +97,12 @@ check(
 const builder = read("electron-builder.yml");
 if (owner && repo) {
   requirePattern(builder, /^publish:\s*$/m, "publish block");
-  requirePattern(builder, /^\s+provider:\s*github\s*$/m, "GitHub publish provider");
-  requirePattern(builder, new RegExp(`^\\s+owner:\\s*${escapeRegExp(owner)}\\s*$`, "m"), "publish owner");
-  requirePattern(builder, new RegExp(`^\\s+repo:\\s*${escapeRegExp(repo)}\\s*$`, "m"), "publish repo");
+  requirePattern(builder, /^[ \t]+provider:[ \t]*github[ \t]*$/m, "GitHub publish provider");
+  requirePattern(builder, new RegExp(String.raw`^\s+owner:\s*${escapeRegExp(owner)}\s*$`, "m"), "publish owner");
+  requirePattern(builder, new RegExp(String.raw`^\s+repo:\s*${escapeRegExp(repo)}\s*$`, "m"), "publish repo");
 }
-requirePattern(builder, /^\s+-\s+target:\s*nsis\s*$/m, "NSIS target");
-requirePattern(builder, /^\s+-\s+target:\s*portable\s*$/m, "portable target");
+requirePattern(builder, /^[ \t]+-[ \t]+target:[ \t]*nsis[ \t]*$/m, "NSIS target");
+requirePattern(builder, /^[ \t]+-[ \t]+target:[ \t]*portable[ \t]*$/m, "portable target");
 requirePattern(
   builder,
   /artifactName:\s*"\$\{productName\}-Setup-\$\{version\}\.\$\{ext\}"/,
@@ -131,7 +131,7 @@ for (const event of [
   "update-downloaded",
   "error",
 ]) {
-  requirePattern(updater, new RegExp(`autoUpdater\\.on\\("${event}"`), `"${event}" handler`);
+  requirePattern(updater, new RegExp(String.raw`autoUpdater\.on\("${event}"`), `"${event}" handler`);
 }
 requirePattern(updater, /autoUpdater\.quitAndInstall\(true,\s*true\)/, "silent install and restart");
 requirePattern(updater, /dialog\.showMessageBox/, "visible failure dialog");

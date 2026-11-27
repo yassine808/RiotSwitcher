@@ -36,7 +36,7 @@ if (!base) {
   }
   base = match[1];
 }
-base = base.replace(/\/+$/, "");
+while (base.endsWith("/")) base = base.slice(0, -1);
 
 // The package version by default; --version writes the manifest for a release
 // that is already built, which is what a withdrawal needs.

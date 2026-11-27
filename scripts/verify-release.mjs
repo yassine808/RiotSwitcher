@@ -67,12 +67,14 @@ function version() {
 function parseLatestYml(text) {
   const entries = [];
   for (const line of text.split("\n")) {
-    const url = line.match(/^\s*-\s*url:\s*(.+?)\s*$/);
-    const sha512 = line.match(/^\s+sha512:\s*(.+?)\s*$/);
-    const size = line.match(/^\s+size:\s*(\d+)\s*$/);
-    if (url) entries.push({ url: url[1], sha512: null, size: null });
-    else if (sha512 && entries.length > 0) entries.at(-1).sha512 = sha512[1];
-    else if (size && entries.length > 0) entries.at(-1).size = Number(size[1]);
+    const trimmed = line.trim();
+    if (trimmed.startsWith("- url:")) {
+      entries.push({ url: trimmed.slice(6).trim(), sha512: null, size: null });
+    } else if (line.startsWith(" ") && trimmed.startsWith("sha512:") && entries.length > 0) {
+      entries.at(-1).sha512 = trimmed.slice(7).trim();
+    } else if (line.startsWith(" ") && trimmed.startsWith("size:") && entries.length > 0) {
+      entries.at(-1).size = Number(trimmed.slice(5).trim());
+    }
   }
   return entries;
 }
@@ -104,23 +106,23 @@ try {
   });
   passed.push("updater source matches the lock file");
 } catch (error) {
-  const output = `${error.stderr ?? ""}\n${error.stdout ?? ""}`.replace(/\r/g, "");
+  const output = `${error.stderr ?? ""}\n${error.stdout ?? ""}`.replaceAll("\r", "");
   const reason = output
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => /(changed|not pinned|cannot read)/.test(line) && !line.includes("unchanged"))
     .join("; ");
-  problems.push(`updater source changed without a re-pin${reason ? `: ${reason}` : ""}`);
+  problems.push(reason ? `updater source changed without a re-pin: ${reason}` : "updater source changed without a re-pin");
 }
 
 // 2. The app that ships is built from this tree and points at the live feed.
 if (url) {
   const artifact = existsSync(PACKAGED_ASAR) ? PACKAGED_ASAR : MAIN_BUNDLE;
-  const label = relative(ROOT, artifact).replace(/\\/g, "/");
+  const label = relative(ROOT, artifact).replaceAll("\\", "/");
   if (
     check(
       existsSync(artifact),
-      `no packaged app: neither ${relative(ROOT, PACKAGED_ASAR).replace(/\\/g, "/")} nor ${relative(ROOT, MAIN_BUNDLE).replace(/\\/g, "/")} exists (run npm run build)`,
+      `no packaged app: neither ${relative(ROOT, PACKAGED_ASAR).replaceAll("\\", "/")} nor ${relative(ROOT, MAIN_BUNDLE).replaceAll("\\", "/")} exists (run npm run build)`,
       `packaged app found: ${label}`,
     )
   ) {
@@ -159,7 +161,8 @@ if (check(existsSync(ymlPath), "release/latest.yml is missing", "release/latest.
   }
 
   // electron-updater downloads `path` first; it must be one of the entries.
-  const pathEntry = text.match(/^path:\s*(.+?)\s*$/m)?.[1];
+  const pathLine = text.split("\n").find((line) => line.startsWith("path:"));
+  const pathEntry = pathLine?.slice(5).trim();
   if (pathEntry) {
     check(
       entries.some((entry) => entry.url === pathEntry),

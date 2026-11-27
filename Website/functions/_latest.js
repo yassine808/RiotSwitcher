@@ -1,13 +1,25 @@
 // Reads the newest public GitHub release and works out the build's file names.
 export const FEED = "https://github.com/yassine808/RiotSwitcher/releases/latest/download";
 
+/** Reads one top-level `key: value` line from latest.yml. */
+function yamlValue(yml, key) {
+  const prefix = key + ":";
+  for (const line of yml.split("\n")) {
+    const text = line.trim();
+    if (text.startsWith(prefix)) {
+      return text.slice(prefix.length).trim().replace(/^['"]|['"]$/g, "");
+    }
+  }
+  return undefined;
+}
+
 export async function getLatest() {
   const res = await fetch(`${FEED}/latest.yml`, { cf: { cacheTtl: 60 } });
   if (!res.ok) throw new Error(`feed ${res.status}`);
   const yml = await res.text();
-  const version = (yml.match(/^version:\s*['"]?([^'"\s]+)/m) || [])[1];
+  const version = yamlValue(yml, "version");
   if (!version) throw new Error("no version in latest.yml");
-  const path = (yml.match(/^path:\s*['"]?([^'"\n]+?)['"]?\s*$/m) || [])[1];
+  const path = yamlValue(yml, "path");
   const url = (name) => (/^https?:\/\//.test(name) ? name : `${FEED}/${name}`);
   return {
     version,

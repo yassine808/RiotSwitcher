@@ -14,14 +14,23 @@ const CONFIG = {
     document.querySelectorAll("[data-version]").forEach((el) => (el.textContent = "v" + d.version));
   };
   const parse = (yml) => {
-    const version = (yml.match(/^version:\s*['"]?([^'"\s]+)/m) || [])[1];
-    const path = (yml.match(/^path:\s*['"]?([^'"\n]+?)['"]?\s*$/m) || [])[1];
+    const value = (key) => {
+      const line = yml
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.startsWith(key + ":"));
+      return line?.slice(key.length + 1).trim().replace(/^['"]|['"]$/g, "");
+    };
+    const version = value("version");
+    const path = value("path");
     if (!version) throw new Error("no version");
     const url = (name) => (/^https?:\/\//.test(name) ? name : `${CONFIG.feed}/${name}`);
     return { version, setup: url(path || `RiotSwitcher-Setup-${version}.exe`), portable: url(`RiotSwitcher-${version}-portable.exe`) };
   };
   try { // 1) the Pages Function, 2) the release directly. If both fail the /download/* redirect links still work.
-    const r = await fetch("/api/latest"); if (!r.ok) throw 0; set(await r.json());
+    const r = await fetch("/api/latest");
+    if (!r.ok) throw new Error("latest feed unavailable");
+    set(await r.json());
   } catch {
     try { const r = await fetch(CONFIG.feed + "/latest.yml"); set(parse(await r.text())); } catch { /* keep fallbacks */ }
   }
@@ -57,10 +66,25 @@ function Swipe(host, texts, { hold = 2300, loop = true, onEnd } = {}) {
     });
     return q;
   };
-  const show = () => { if (stopped) return; cur = make(texts[i]); host.replaceChildren(cur); timer = setTimeout(hide, reduceMotion ? 3500 : hold); };
+  const show = () => {
+    if (stopped) return;
+    cur = make(texts[i]);
+    host.replaceChildren(cur);
+    timer = setTimeout(hide, reduceMotion ? 3500 : hold);
+  };
   const hide = () => {
     if (stopped) return;
-    const next = () => { i++; if (i >= texts.length) { if (!loop) { onEnd && onEnd(); return; } i = 0; } show(); };
+    const next = () => {
+      i++;
+      if (i >= texts.length) {
+        if (!loop) {
+          onEnd?.();
+          return;
+        }
+        i = 0;
+      }
+      show();
+    };
     if (reduceMotion) return next();
     cur.className = "q out";
     timer = setTimeout(next, 600 + (cur.querySelectorAll(".w").length - 1) * 45 + 90);
@@ -91,7 +115,9 @@ const Quotes = (() => {
   if (!intro || !root.classList.contains("intro-on")) { Quotes.start(); return; }
   let done = false, seq;
   const finish = () => {
-    if (done) return; done = true; seq.stop();
+    if (done) return;
+    done = true;
+    seq.stop();
     try { sessionStorage.setItem("rs-intro", "1"); } catch {}
     intro.classList.add("leaving"); root.classList.remove("intro-on");
     setTimeout(() => { intro.remove(); Quotes.start(); }, 900);
@@ -151,7 +177,15 @@ const Amb = (() => {
   const KEY = "rs-sound";
   const btn = document.querySelector(".snd");
   const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
-  const rng = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const rng = (seed) => {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
   // Am9 > Fmaj7 > Cmaj9 > G6/9, eight seconds each
   const CHORDS = [[45, 48, 52, 55, 59], [41, 45, 48, 52, 55], [48, 52, 55, 59, 62], [43, 47, 50, 52, 57]];
   const STEP = 0.46, STEPS_PER_CHORD = 16;
@@ -250,7 +284,20 @@ const Amb = (() => {
     const first = () => { removeEventListener("pointerdown", first); removeEventListener("keydown", first); removeEventListener("rs-interact", first); if (!on) void set(true, false); };
     addEventListener("pointerdown", first); addEventListener("keydown", first); addEventListener("rs-interact", first);
   }
-  return { makeEngine, blip(f = 660) { if (!on || !ctx) return; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.value = f;
-    g.gain.setValueAtTime(0, ctx.currentTime); g.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
-    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.25); } };
+  return {
+    makeEngine,
+    blip(f = 660) {
+      if (!on || !ctx) return;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0, ctx.currentTime);
+      g.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 0.25);
+    },
+  };
 })();

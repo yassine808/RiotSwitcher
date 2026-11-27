@@ -15,4 +15,11 @@
  */
 const DEFAULT_FEED_URL = "https://github.com/yassine808/RiotSwitcher/releases/latest/download";
 
-export const UPDATE_FEED_URL = (process.env.RIOTSWITCHER_UPDATE_FEED ?? DEFAULT_FEED_URL).replace(/\/+$/, "");
+/** Drops trailing slashes without a regex: the path is a URL, not a pattern. */
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end -= 1;
+  return url.slice(0, end);
+}
+
+export const UPDATE_FEED_URL = withoutTrailingSlashes(process.env.RIOTSWITCHER_UPDATE_FEED ?? DEFAULT_FEED_URL);

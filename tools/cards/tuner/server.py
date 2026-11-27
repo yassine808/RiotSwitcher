@@ -37,6 +37,7 @@ BASE_FILE = "base.png"
 SHEET_FILE = "sheet.png"
 TILE_FILE = "sheet-tile.png"
 SOURCE_FILES = (BASE_FILE, SHEET_FILE, TILE_FILE)
+TUNER_SRC_URL = "/tuner-src/%s/%s"
 
 CARD_W, CARD_H = 268, 640
 DEFAULT_OPACITY = 1.0
@@ -138,9 +139,9 @@ def merged_cards():
         values = clean_placement(card, pick if isinstance(pick, dict) else {})
         card["placement"] = values
         card["saved"] = bool(isinstance(pick, dict) and pick)
-        card["baseUrl"] = "/tuner-src/%s/%s" % (card["agent"], BASE_FILE)
-        card["sheetUrl"] = "/tuner-src/%s/%s" % (card["agent"], SHEET_FILE)
-        card["tileUrl"] = "/tuner-src/%s/%s" % (card["agent"], TILE_FILE)
+        card["baseUrl"] = TUNER_SRC_URL % (card["agent"], BASE_FILE)
+        card["sheetUrl"] = TUNER_SRC_URL % (card["agent"], SHEET_FILE)
+        card["tileUrl"] = TUNER_SRC_URL % (card["agent"], TILE_FILE)
         card["outUrl"] = "/animated/%s" % card["file"]
     return data
 

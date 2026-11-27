@@ -18,7 +18,14 @@ const ready = (async () => {
   return { agents: agents ?? [], tiers: (tiers?.at(-1)?.tiers ?? []) as any[], maps: maps ?? [], cards: cards ?? [] };
 })();
 
-const seed = (s: string) => { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return () => ((h = (h * 1103515245 + 12345) >>> 0) / 4294967296); };
+const seed = (s: string) => {
+  let h = 7;
+  for (const c of s) h = (h * 31 + (c.codePointAt(0) ?? 0)) >>> 0;
+  return () => {
+    h = (h * 1103515245 + 12345) >>> 0;
+    return h / 4294967296;
+  };
+};
 const MAPS = ["Ascent", "Bind", "Haven", "Split", "Lotus", "Sunset", "Icebox"];
 
 interface Seed { name: string; card: string; agent: string; tier: number; rr: number; w: number; l: number }
@@ -54,7 +61,7 @@ function build(s: Seed): Json {
     is_running: false,
     valorant_data: {
       tier: s.tier, rank_name: tier?.tierName ?? (s.tier ? "" : "Unranked"), rr: s.rr, peak_rank_name: tier?.tierName ?? "", wins: s.w, losses: s.l, games: total,
-      last_played_ms: Date.now() - 3600_000, last_updated_ms: Date.now(), act_id: "demo", top_agent: s.agent, avg_combat_score: 212,
+      last_played_ms: Date.now() - 3_600_000, last_updated_ms: Date.now(), act_id: "demo", top_agent: s.agent, avg_combat_score: 212,
       agent_stats: pool.slice(0, 4).map((a, i) => ({ agent: a.displayName, games: 20 - i * 4, winrate: 55 - i * 5 })),
       recent_matches: pool.slice(0, 5).map((a, i) => ({ agent: a.displayName, map: MAPS[i], result: i % 3 === 1 ? "loss" : "win", score: 210 + i * 9, kills: 17 - i, deaths: 12 + i, assists: 4 + i })),
       map_stats, agent_portrait: ag?.fullPortrait ?? "", agent_display_icon: ag?.displayIcon ?? "", agent_role: ag?.role?.displayName ?? "",
@@ -75,8 +82,16 @@ const handlers: Record<string, (p: Json) => any> = {
   get_profiles: () => out(),
   get_valorant_maps: () => ctx.maps.filter((m) => m.tacticalDescription).map((m) => ({ name: m.displayName, splash: m.splash, display_icon: m.displayIcon, thumbnail: m.listViewIcon })),
   get_playercards: () => ctx.cards.map((c) => ({ uuid: c.uuid, displayName: c.displayName, largeArt: c.largeArt })),
-  set_playercard: ({ name, card_url }) => { const p = profiles.find((x) => x.profile_name === name); if (p) p.valorant_data.player_card_bg = card_url; return { ok: true }; },
-  delete_profile: ({ name }) => { profiles = profiles.filter((p) => p.profile_name !== name); if (running === name) running = null; return { ok: true }; },
+  set_playercard: ({ name, card_url }) => {
+    const p = profiles.find((x) => x.profile_name === name);
+    if (p) p.valorant_data.player_card_bg = card_url;
+    return { ok: true };
+  },
+  delete_profile: ({ name }) => {
+    profiles = profiles.filter((p) => p.profile_name !== name);
+    if (running === name) running = null;
+    return { ok: true };
+  },
   reorder_profiles: ({ names }) => { profiles.sort((a, b) => names.indexOf(a.profile_name) - names.indexOf(b.profile_name)); return { ok: true }; },
   refresh_valorant: () => { setTimeout(() => emit("valorant_data_updated", {}), 700); return { ok: true }; },
   quit_valorant: () => ({ ok: true }),
@@ -102,7 +117,10 @@ const handlers: Record<string, (p: Json) => any> = {
   launch_profile: async ({ name }) => {
     const steps: [string, string][] = running ? [["kill", "Closing Riot Client…"], ["save", "Saving the current session…"], ["restore", `Restoring ${name}…`], ["launch", "Launching the Riot Client…"]]
       : [["restore", `Restoring ${name}…`], ["launch", "Launching the Riot Client…"]];
-    for (const [step, message] of steps) { emit("profile_switch_progress", { step, status: "pending", message }); await wait(650); }
+    for (const [step, message] of steps) {
+      emit("profile_switch_progress", { step, status: "pending", message });
+      await wait(650); // NOSONAR: the demo shows each step after the previous one
+    }
     running = name;
     emit("profile_switch_progress", { step: "launch", status: "done", message: "Launched" });
     // tell the website around the demo which card is live, so its background can follow
@@ -118,11 +136,15 @@ const handlers: Record<string, (p: Json) => any> = {
   checkUpdate: async () => { const s = (state: string) => listeners2.forEach((l) => l({ state })); s("checking"); await wait(900); s("up-to-date"); },
   downloadUpdate: async () => {}, installUpdate: async () => {},
   onUpdateStatus: (cb: (d: any) => void) => { listeners2.add(cb); return () => listeners2.delete(cb); },
-  getAnimatedCards: async () => CARD_NAMES.filter((n) => !PRE || PRE[n]).map((n) => ({ name: n, url: cardUrl(n) })),
+  getAnimatedCards: () => Promise.resolve(CARD_NAMES.filter((n) => !PRE || PRE[n]).map((n) => ({ name: n, url: cardUrl(n) }))),
   copyText: async (t: string) => { try { await navigator.clipboard.writeText(t); } catch { /* ignore */ } },
-  createProfileShortcut: async () => ({ ok: true, path: "Desktop" }),
-  openExternal: async (u: string) => { window.open(u, "_blank", "noopener"); },
-  call: async (method: string, params: Json = {}) => { await ready; if (!profiles.length) profiles = SEEDS.map(build); return handlers[method]?.(params) ?? null; },
+  createProfileShortcut: () => Promise.resolve({ ok: true, path: "Desktop" }),
+  openExternal: (u: string) => { window.open(u, "_blank", "noopener"); return Promise.resolve(); },
+  call: async (method: string, params: Json = {}) => {
+    await ready;
+    if (!profiles.length) profiles = SEEDS.map(build);
+    return handlers[method]?.(params) ?? null;
+  },
   onEvent: (cb: (d: { event: string; params: unknown }) => void) => { listeners.add(cb); return () => listeners.delete(cb); },
 };
 const listeners2 = new Set<(d: any) => void>();
