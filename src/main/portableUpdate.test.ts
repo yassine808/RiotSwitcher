@@ -13,7 +13,7 @@ vi.mock("electron", () => ({
   BrowserWindow: class {},
 }));
 
-import { swapScript } from "./portableUpdate";
+import { manifestUrl, swapScript } from "./portableUpdate";
 
 const dirs: string[] = [];
 
@@ -25,6 +25,15 @@ function scratch(): string {
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe("portable update feed", () => {
+  // The portable build cannot use electron-updater, so this manifest is its
+  // only update source. It must resolve from the same public release as the
+  // installed build.
+  it("reads latest.json from the newest GitHub release", () => {
+    expect(manifestUrl()).toBe("https://github.com/yassine808/RiotSwitcher/releases/latest/download/latest.json");
+  });
 });
 
 describe("portable swap script", () => {

@@ -1,17 +1,18 @@
 /**
  * Where the app looks for updates.
  *
- * Release assets on GitHub are only served to authenticated requests once the
- * repository is private, and an installed copy cannot hold a token. Builds are
- * therefore published to a public Cloudflare R2 bucket, which serves the same
- * files anonymously.
+ * The repository is public, so GitHub serves release assets anonymously.
+ * `releases/latest/download` is a flat view of the newest published release:
+ * `latest.yml`, `latest.json`, the Setup exe and the portable exe all resolve
+ * from that one base, which is exactly the layout both updaters expect.
  *
- * `RIOTSWITCHER_UPDATE_FEED` overrides the bucket so a local HTTP server can
+ * `RIOTSWITCHER_UPDATE_FEED` overrides the feed so a local HTTP server can
  * stand in while testing an update without publishing anything.
  *
- * `scripts/make-update-manifest.mjs` reads the literal below to build absolute
- * URLs, so keep it a plain string on its own line.
+ * `scripts/make-update-manifest.mjs`, `scripts/verify-feed.mjs` and
+ * `scripts/check-updater.mjs` read the literal below to build absolute URLs, so
+ * keep it a plain string on its own line.
  */
-const DEFAULT_FEED_URL = "https://pub-6d3d6d22222242dab87967c474f39ada.r2.dev";
+const DEFAULT_FEED_URL = "https://github.com/yassine808/RiotSwitcher/releases/latest/download";
 
 export const UPDATE_FEED_URL = (process.env.RIOTSWITCHER_UPDATE_FEED ?? DEFAULT_FEED_URL).replace(/\/+$/, "");

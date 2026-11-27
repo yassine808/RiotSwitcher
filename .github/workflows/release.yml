@@ -2,8 +2,10 @@ name: Release
 
 # Building the Windows artifacts is the app's "deployment": the installer and
 # portable exe are published as a GitHub Release, and electron-builder also
-# writes latest.yml, which the in-app updater reads. Pushing a v* tag is the
-# normal trigger; workflow_dispatch exists to rebuild an existing tag.
+# writes latest.yml. The public release is the update feed itself, so a client
+# reads https://github.com/yassine808/RiotSwitcher/releases/latest/download/.
+# Pushing a v* tag is the normal trigger; workflow_dispatch exists to rebuild an
+# existing tag.
 on:
   push:
     tags: ["v*"]
@@ -18,7 +20,8 @@ permissions:
 
 concurrency:
   # One writer for the feed. A withdrawal (withdraw.yml) shares this group: two
-  # runs must never interleave on the manifests, whichever started first wins.
+  # runs must never interleave on the latest pointer, whichever started first
+  # wins.
   group: release-feed
   cancel-in-progress: false
 
@@ -26,10 +29,6 @@ env:
   NODE_VERSION: "24"
   # Keep in step with the PyInstaller used for local builds (6.16.0).
   PYINSTALLER_VERSION: "6.16.0"
-  # How many versions the feed keeps. Read by both prune-feed.mjs (deletes
-  # outside the window) and verify-feed.mjs (fails if one is still there), so
-  # the two can never disagree about what "the retention window" means.
-  R2_KEEP_VERSIONS: "3"
 
 jobs:
   release:
@@ -38,28 +37,7 @@ jobs:
     environment:
       name: release
       url: https://github.com/${{ github.repository }}/releases/tag/${{ github.event.inputs.tag || github.ref_name }}
-    env:
-      # The public update feed. Missing either one fails the run on the first
-      # step: a release that publishes to GitHub but never reaches the feed
-      # leaves every installed copy on the old version, which is how the first
-      # two builds had to be uploaded by hand.
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - name: Check the feed credentials
-        # Fails before anything is built, so the reason is the first line of the
-        # log instead of a build that ends without publishing.
-        if: ${{ !env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID }}
-        shell: pwsh
-        run: |
-          $missing = @()
-          if (-not $env:CLOUDFLARE_API_TOKEN) { $missing += "CLOUDFLARE_API_TOKEN" }
-          if (-not $env:CLOUDFLARE_ACCOUNT_ID) { $missing += "CLOUDFLARE_ACCOUNT_ID" }
-          if ($missing.Count -gt 0) {
-            throw (("missing: {0}. Add them under Settings > Secrets and variables > Actions. " +
-              "Token: My Profile > API Tokens > Create Token > Workers R2 Storage: Edit.") -f ($missing -join " and "))
-          }
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
@@ -75,8 +53,8 @@ jobs:
           python-version: "3.9"
 
       - name: Install Python dependencies
-        # Quoted: the bare ":all:" contains a space-colon, which YAML reads as a
-        # nested mapping and rejects (same trap as ci.yml). requirements-dev
+        # Quoted: the bare ":all:" contains a space-colon, which YAML reads as
+        # a nested mapping and rejects (same trap as ci.yml). requirements-dev
         # supplies pytest for the gate below; the release build itself only
         # needs requirements.txt.
         run: "python -m pip install --only-binary :all: -r requirements.txt -r requirements-dev.txt pyinstaller==${{ env.PYINSTALLER_VERSION }}" # NOSONAR
@@ -98,10 +76,11 @@ jobs:
           npm run test
           python -m pytest tests/ -q
 
-      # The updater is pinned (see scripts/check-updater-lock.mjs). CI already
-      # enforces it on main; checking again here stops a tag built from a
-      # modified updater from being published to every installed copy.
-      - name: Verify the updater is unchanged
+      # The updater is pinned and its full wiring is checked (see
+      # scripts/check-updater.mjs). CI already enforces this on main; checking
+      # again here stops a tag built from a modified updater from being
+      # published to every installed copy.
+      - name: Verify the updater
         run: npm run check:updater
 
       - name: Restore the bundled API key
@@ -124,7 +103,7 @@ jobs:
         run: npm run build
 
       - name: Package the app
-        # Publish is handled by the next step: electron-builder's own publisher
+        # Publish is handled by the next steps: electron-builder's own publisher
         # creates one release per target, which races and splits the assets
         # across two drafts on the same tag.
         run: npx electron-builder --win --publish never
@@ -132,6 +111,17 @@ jobs:
           # No code-signing certificate is configured; make that explicit so
           # electron-builder does not try to discover one on the runner.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Add the stable Setup.exe download alias
+        # README links to releases/latest/download/RiotSwitcher-Setup.exe, a URL
+        # that cannot carry the version. The versioned installer stays the one
+        # latest.yml names; this is a byte-for-byte copy for humans.
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $setup = "release/RiotSwitcher-Setup-$version.exe"
+          if (-not (Test-Path $setup)) { throw "missing $setup" }
+          Copy-Item $setup "release/RiotSwitcher-Setup.exe" -Force
 
       - name: Build the portable update manifest
         # latest.json carries the portable exe's URL, size and sha256; the
@@ -152,17 +142,17 @@ jobs:
         run: npm run verify:release
 
       - name: Publish the release
+        # Draft first: the latest pointer must never expose a release whose
+        # assets are still uploading. Everything a client can request is in the
+        # release before it is made public.
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.event.inputs.tag || github.ref_name }}"
-          # The portable exe is served by the update feed only: the repository
-          # is private, so a file downloaded from here cannot be fetched by the
-          # updater, and a stale copy would only confuse the two sources.
           $files = @(Get-ChildItem release -File |
             Where-Object {
-              ($_.Name -match '\.(exe|blockmap)$' -and $_.Name -notmatch '-portable\.exe') -or
+              $_.Name -match '\.(exe|blockmap)$' -or
               $_.Name -eq 'latest.yml' -or
               $_.Name -eq 'latest.json'
             } |
@@ -171,66 +161,25 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @files --clobber
-            gh release edit $tag --draft=false
+            gh release edit $tag --draft=false --latest
           } else {
-            gh release create $tag @files --title "RiotSwitcher $tag" --generate-notes
+            gh release create $tag --draft --verify-tag --title "RiotSwitcher $tag" --generate-notes
+            gh release upload $tag @files --clobber
+            gh release edit $tag --draft=false --latest
           }
-
-      - name: Install the feed uploader
-        run: npm install -g wrangler@4
-
-      - name: Publish to the update feed
-        # Both updaters read this bucket: release assets on a private repository
-        # need a token, which an installed copy does not have. Binaries go up
-        # before the manifests, so a client never reads a manifest naming a file
-        # the bucket does not have yet.
-        shell: bash
-        env:
-          R2_BUCKET: riotswitcher-updates
-        run: |
-          set -euo pipefail
-          # A binary's name carries its version, so the bytes behind a URL never
-          # change: let every cache keep them forever. The manifests are the
-          # pointers and must be revalidated on each poll, or a release would
-          # stay invisible to a client holding an old copy.
-          IMMUTABLE="public, max-age=31536000, immutable"
-          REVALIDATE="no-cache"
-          put() { wrangler r2 object put "$R2_BUCKET/$1" --file "$2" --remote --content-type "$3" --cache-control "$4"; }
-          for file in release/*.exe release/*.blockmap; do
-            [ -e "$file" ] || continue
-            put "$(basename "$file")" "$file" application/octet-stream "$IMMUTABLE"
-          done
-          put latest.yml release/latest.yml text/yaml "$REVALIDATE"
-          put latest.json release/latest.json application/json "$REVALIDATE"
-
-      - name: Prune older versions from the feed
-        # The bucket carries the three newest releases (R2_KEEP_VERSIONS).
-        # Everything older is removed now that the new manifests are live.
-        # Raise R2_KEEP_VERSIONS to widen the rollback window.
-        # The bucket is listed when the API token is present, so a build that
-        # never got a tag is pruned too.
-        # Never before the upload: a client still reading the old manifest
-        # would hit a deleted file.
-        env:
-          R2_BUCKET: riotswitcher-updates
-        run: node scripts/prune-feed.mjs
 
       - name: Verify the live feed
         # Upload is only half of publishing: this reads the public URL back the
-        # way a client does. Manifests on this version, binaries behind them
-        # with the declared size, cache headers as intended, and nothing outside
-        # the three-version window still being served. A stale edge copy is
+        # way both updaters do. Manifests on this version, binaries behind them
+        # with the declared size, and the portable's sha256. A stale edge copy is
         # retried, not excused.
         # VERIFY_DOWNLOAD also hashes the portable: a client only notices a
         # corrupt object after downloading all 127 MB and then refuses it, so
         # the bytes are checked here instead of by every user.
         env:
-          R2_BUCKET: riotswitcher-updates
           VERIFY_DOWNLOAD: "1"
         run: npm run verify:feed
 
-      # No upload-artifact step: by now the GitHub release carries the
-      # installer, its blockmap and both manifests, and the feed carries the
-      # portable too. Archiving ~265 MB per run as well only burned the
-      # account's artifact quota, which failed a run that had already
-      # published successfully.
+      # No upload-artifact step: the GitHub release carries the installer, its
+      # blockmap, the portable and both manifests. Archiving ~265 MB per run as
+      # well only burned the account's artifact quota.

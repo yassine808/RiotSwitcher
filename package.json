@@ -1,10 +1,14 @@
 {
   "name": "riotswitcher",
-  "version": "3.1.23",
+  "version": "3.1.24",
   "description": "Riot Account Manager — Switch between Riot accounts instantly",
   "main": "out/main/index.js",
   "author": "Yassine",
   "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yassine808/RiotSwitcher.git"
+  },
   "engines": {
     "node": ">=22.22.2"
   },
@@ -20,8 +24,8 @@
     "dist": "npm run build && npm run build:py && electron-builder",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "check:api-leaks": "node scripts/check-api-leaks.mjs",
-    "check:updater": "node scripts/check-updater-lock.mjs",
-    "feed:prune": "node scripts/prune-feed.mjs",
+    "check:updater": "node scripts/check-updater.mjs",
+    "check:updater-lock": "node scripts/check-updater-lock.mjs",
     "verify:release": "node scripts/verify-release.mjs",
     "verify:feed": "node scripts/verify-feed.mjs",
     "lint": "eslint src/renderer/src/ src/main/",

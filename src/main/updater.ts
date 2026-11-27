@@ -22,10 +22,10 @@ autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.autoRunAppAfterInstall = true;
 autoUpdater.allowDowngrade = false;
-// R2 answers a multi-range request with 400, so the differential downloader can
-// never work against this feed: it fails once per update and then downloads the
-// whole installer anyway. Skip that guaranteed failure and go straight to the
-// full file.
+// Download the full installer on purpose. A differential update adds a second
+// failure path (blockmap download plus range requests) to the one thing that
+// must keep working on every installed copy. The blockmap is still published,
+// so this can be enabled later without republishing a release.
 autoUpdater.disableDifferentialDownload = true;
 
 let updateWindow: BrowserWindow | null = null;
@@ -106,10 +106,10 @@ export function initAutoUpdater(): void {
     return;
   }
 
-  // Release assets on GitHub need a token once the repository is private, and
-  // an installed copy has none, so the feed is the public bucket. Setting it
-  // here overrides the `publish` block baked into app-update.yml and keeps the
-  // URL in one place, shared with the portable updater.
+  // The repository is public, so GitHub serves the newest release's assets
+  // anonymously. Setting the feed here overrides the `publish` block baked into
+  // app-update.yml and keeps the URL in one place, shared with the portable
+  // updater. The generic provider appends `latest.yml` to this base.
   autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL });
   log.info(`Update feed: ${UPDATE_FEED_URL}`);
 

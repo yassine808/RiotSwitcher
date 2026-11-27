@@ -5,9 +5,10 @@ copyright: Copyright © 2026 RiotSwitcher Contributors
 publish:
   provider: github
   owner: yassine808
-  # Releases are published from the private repository; the runtime feed is
-  # overridden by setFeedURL anyway. The public yassine808/assist only carries
-  # the 3.1.8 installer for clients that predate the R2 feed.
+  # The public repository serves release assets anonymously. Both updaters read
+  # the newest published release through releases/latest/download, and this
+  # block is what electron-builder bakes into app-update.yml as the publisher
+  # identity. It must name the same repository as DEFAULT_FEED_URL.
   repo: RiotSwitcher
 
 directories:

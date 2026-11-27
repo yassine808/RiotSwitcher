@@ -212,7 +212,7 @@ describe("update checks", () => {
     expect(checkForUpdates).toHaveBeenCalledTimes(3);
   });
 
-  it("reads the public feed instead of the GitHub release", async () => {
+  it("reads the newest GitHub release, not a CDN", async () => {
     const { setFeedURL } = mockModules(true);
 
     const mod = await import("./updater");
@@ -220,14 +220,13 @@ describe("update checks", () => {
 
     expect(setFeedURL).toHaveBeenCalledWith({
       provider: "generic",
-      url: expect.stringMatching(/^https:\/\//),
+      url: "https://github.com/yassine808/RiotSwitcher/releases/latest/download",
     });
   });
 
-  // R2 rejects a multi-range request with 400. electron-updater would log that
-  // failure on every update and then fetch the whole installer anyway, so the
-  // differential path is disabled instead of retried.
-  it("skips the differential download the feed cannot serve", async () => {
+  // The full installer is the one update path that must always work; the
+  // differential path is deliberately off even though the blockmap is published.
+  it("skips the differential download", async () => {
     const { autoUpdater } = mockModules(true);
 
     await import("./updater");

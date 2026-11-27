@@ -7,73 +7,57 @@ RiotSwitcher ships two Windows artifacts, and each one updates itself:
 | `RiotSwitcher-Setup-<version>.exe` | installed app | `electron-updater` (`src/main/updater.ts`) |
 | `RiotSwitcher-<version>-portable.exe` | unpacked into `%TEMP%`, no install | `src/main/portableUpdate.ts` |
 
-Both read the same public feed. The feed is a Cloudflare R2 bucket because the
-GitHub repository is private: release assets there need an authenticated
-request, and neither an installed nor a portable copy has a token.
+Both read the same public feed: the newest **GitHub Release** of
+`yassine808/RiotSwitcher`. The repository is public, so GitHub serves release
+assets anonymously and no token ships in the app.
 
-## 1. The bucket
-
-| Setting | Value |
-| --- | --- |
-| Account ID | `d6e06264fb54c9b459f4d3975543474a` |
-| Bucket | `riotswitcher-updates` |
-| Public URL | `https://pub-6d3d6d22222242dab87967c474f39ada.r2.dev` |
-| Access | public, `r2.dev` development URL |
-| Cache | binaries `public, max-age=31536000, immutable`; manifests `no-cache` |
-
-A versioned file never changes, so it is safe to cache forever; the two
-manifests are pointers, so every reader revalidates them.
-
-Created and opened once, from a shell logged into Cloudflare:
-
-```powershell
-wrangler login
-wrangler r2 bucket create riotswitcher-updates
-wrangler r2 bucket dev-url enable riotswitcher-updates
+```
+https://github.com/yassine808/RiotSwitcher/releases/latest/download
 ```
 
-In the dashboard the same things live at **R2 → riotswitcher-updates**
-(bucket, objects) and **R2 → riotswitcher-updates → Settings → Public access**
-(the `r2.dev` toggle). No custom domain and no Worker: the bucket is read
-anonymously over HTTPS.
+## 1. The feed
 
-The URL is stored in one place, `src/main/updateFeed.ts`. A local build can
-point somewhere else without editing it:
+`releases/latest/download` is a flat view of the release GitHub currently marks
+as **Latest**: every asset can be fetched by name from that one base. That is
+exactly the layout both updaters expect, so no bucket, CDN or Worker is
+involved.
+
+The URL lives in one place, `src/main/updateFeed.ts`. A local build can point
+somewhere else without editing it:
 
 ```powershell
 $env:RIOTSWITCHER_UPDATE_FEED = "http://127.0.0.1:8080"
 ```
 
-## 2. What sits in the bucket
+`release.yml` publishes a release with `gh release edit --latest`, and
+`withdraw.yml` moves that same pointer back to an older release (§7). Nothing
+else decides what "latest" means.
 
-Everything is flat at the bucket root, because both manifests name files
+## 2. What a release contains
+
+Everything is flat inside the release, because both manifests name files
 relative to the feed URL.
 
 ```
-riotswitcher-updates/
+v3.1.24/
 ├── latest.yml                              NSIS manifest (electron-builder)
 ├── latest.json                             portable manifest (scripts/make-update-manifest.mjs)
-├── RiotSwitcher-Setup-3.1.12.exe
-├── RiotSwitcher-Setup-3.1.12.exe.blockmap
-└── RiotSwitcher-3.1.12-portable.exe
+├── RiotSwitcher-Setup-3.1.24.exe
+├── RiotSwitcher-Setup-3.1.24.exe.blockmap
+├── RiotSwitcher-Setup.exe                  stable alias used by README
+└── RiotSwitcher-3.1.24-portable.exe
 ```
-
-The three newest versions stay. `latest.yml`, `latest.json` and each of those
-three versions' files are what the bucket holds: after a publish,
-`scripts/prune-feed.mjs` deletes every object older than the window. The window
-is `R2_KEEP_VERSIONS` (3 in `release.yml`); `--keep N` changes it, and a wider
-window keeps more builds available for a rollback (§7).
 
 `latest.yml` is written by electron-builder for the installer. `latest.json`
 is written after packaging for the portable build, which has no YAML parser:
 
 ```json
 {
-  "version": "3.1.11",
-  "publishedAt": "2026-11-09T08:48:37.246Z",
+  "version": "3.1.24",
+  "publishedAt": "2026-11-27T09:00:00.000Z",
   "files": {
     "portable": {
-      "url": "https://pub-6d3d6d22222242dab87967c474f39ada.r2.dev/RiotSwitcher-3.1.11-portable.exe",
+      "url": "https://github.com/yassine808/RiotSwitcher/releases/latest/download/RiotSwitcher-3.1.24-portable.exe",
       "sha256": "…",
       "size": 126757669
     }
@@ -81,25 +65,26 @@ is written after packaging for the portable build, which has no YAML parser:
 }
 ```
 
+Releases are never pruned. Older releases stay downloadable for rollback and
+for the withdrawal workflow, but the feed only ever serves the newest one.
+
 ## 3. Publishing
 
 ```mermaid
 flowchart TD
   T["git tag vX.Y.Z"] --> GATE["gates<br/>typecheck · lint · vitest · pytest · check:updater"]
   GATE --> PACK["electron-builder<br/>NSIS + portable + latest.yml"]
-  PACK --> MAN["make-update-manifest.mjs<br/>release/latest.json"]
+  PACK --> ALIAS["copy Setup.exe alias"]
+  ALIAS --> MAN["make-update-manifest.mjs<br/>release/latest.json"]
   MAN --> VERIFY["verify:release<br/>tag · lock · asar · both manifests"]
-  VERIFY --> GH["GitHub release (private)<br/>Setup exe, blockmap, latest.yml, latest.json"]
-  GH --> R2["wrangler r2 object put --remote<br/>binaries immutable, then manifests no-cache"]
-  R2 --> PRUNE["prune-feed.mjs<br/>keep the three newest versions"]
-  PRUNE --> CHECK["verify:feed<br/>read the public URL back"]
-  CHECK --> FEED["feed<br/>two manifests + three versions"]
+  VERIFY --> DRAFT["gh release create --draft<br/>upload every asset"]
+  DRAFT --> PUB["gh release edit --draft=false --latest"]
+  PUB --> CHECK["verify:feed<br/>read the public URL back"]
 ```
 
-`release.yml` uploads in that order on purpose: a client must never read a
-manifest that names a file the bucket does not have yet. The GitHub release
-keeps the installer plus both manifests — the portables are delivered by the
-feed — so a later withdrawal has everything it needs.
+The draft is deliberate: the latest pointer must never expose a release whose
+assets are still uploading. Every file a client can request is in the release
+before it becomes public.
 
 Before anything is published, `npm run verify:release`
 (`scripts/verify-release.mjs`) checks the release as a whole:
@@ -107,57 +92,40 @@ Before anything is published, `npm run verify:release`
 | Check | Catches |
 | --- | --- |
 | tag vs `package.json` version | a release named `v3.1.13` that contains a `3.1.12` build |
-| pinned updater source still matches `updater.lock.json` | an uncommitted or unre-pinned change to `updater.ts` / `updateFeed.ts` / `portableUpdate.ts` |
+| pinned updater source still matches `updater.lock.json` | an uncommitted or un-re-pinned change to `updater.ts` / `updateFeed.ts` / `portableUpdate.ts` |
 | `app.asar` (or `out/main/index.js`) contains the feed URL | a packaged app built from an older tree |
 | `latest.yml`: version, size, sha512, `path` | a manifest that names a file that is not in `release/`, or a stale hash |
 | `latest.json`: version, url host, size, sha256 | the same for the portable exe |
 
-Any failure exits non-zero and stops the run before GitHub or the bucket sees
-anything. Run it locally the same way after `npm run build`; `--tag vX.Y.Z`
-(or `RELEASE_TAG`) adds the tag check.
+Any failure exits non-zero and stops the run before GitHub sees anything. Run it
+locally the same way after `npm run build`; `--tag vX.Y.Z` (or `RELEASE_TAG`)
+adds the tag check.
 
-After the upload, `npm run verify:feed` (`scripts/verify-feed.mjs`) reads the
-public URL the way a client does: both manifests report this version, the
-binaries behind them answer 200 with the declared size, binaries are
-`immutable`, manifests are `no-cache`, and nothing outside the three-version
-window is still served. A stale edge copy is retried for up to a minute, then
-fails the run. The
-release run sets `VERIFY_DOWNLOAD=1`, which also downloads the portable once
-and checks its sha256 — the only check that covers the bytes a client installs,
-since a corrupt object passes every HEAD check and is refused by the client
-only after the full download.
+After the release is public, `npm run verify:feed` (`scripts/verify-feed.mjs`)
+reads the public URL the way a client does: both manifests report this version,
+the binaries behind them answer 200 with the declared size, and the portable
+URL is on the feed. The release run sets `VERIFY_DOWNLOAD=1`, which also
+downloads the portable once and checks its sha256 — the only check that covers
+the bytes a client installs, since a corrupt asset passes every HEAD check and
+is refused by the client only after the full download.
 
-The run stops on its first step while `CLOUDFLARE_API_TOKEN` or
-`CLOUDFLARE_ACCOUNT_ID` is missing: a release that reaches GitHub but not the
-feed leaves every installed copy on the old version, so failing loudly is the
-only useful behaviour. Add both as repository secrets:
+Publishing is one action — bump `version` in `package.json`, commit, push a
+matching tag:
 
 ```powershell
-gh secret set CLOUDFLARE_ACCOUNT_ID --body "d6e06264fb54c9b459f4d3975543474a"
-gh secret set CLOUDFLARE_API_TOKEN   # paste the token at the prompt
+git tag v3.1.24
+git push origin v3.1.24
 ```
 
-Token: **My Profile → API Tokens → Create Token → Workers R2 Storage: Edit**.
-
-With both set, publishing is one action — bump `version` in `package.json`,
-commit, push a matching tag:
+No repository secret is needed: `GITHUB_TOKEN` is provided by Actions, and the
+repository is public. By hand, only if CI could not run:
 
 ```powershell
-git tag v3.1.13
-git push origin v3.1.13
-```
-
-CI builds, uploads the binaries, then the manifests, then prunes everything
-outside the retention window. No object is ever put into the bucket by hand.
-
-By hand, from a logged-in shell, only if CI could not run:
-
-```powershell
-wrangler r2 object put "riotswitcher-updates/RiotSwitcher-3.1.12-portable.exe" --file release/RiotSwitcher-3.1.12-portable.exe --remote --cache-control "public, max-age=31536000, immutable"
-wrangler r2 object put "riotswitcher-updates/RiotSwitcher-Setup-3.1.12.exe" --file release/RiotSwitcher-Setup-3.1.12.exe --remote --cache-control "public, max-age=31536000, immutable"
-wrangler r2 object put "riotswitcher-updates/latest.json" --file release/latest.json --remote --content-type application/json --cache-control "no-cache"
-wrangler r2 object put "riotswitcher-updates/latest.yml" --file release/latest.yml --remote --content-type text/yaml --cache-control "no-cache"
-node scripts/prune-feed.mjs
+$tag = "v3.1.24"
+gh release create $tag --draft --verify-tag --title "RiotSwitcher $tag" --generate-notes
+gh release upload $tag release/*.exe release/*.blockmap release/latest.yml release/latest.json
+gh release edit $tag --draft=false --latest
+npm run verify:feed
 ```
 
 ## 4. Installed app
@@ -165,12 +133,12 @@ node scripts/prune-feed.mjs
 ```mermaid
 sequenceDiagram
   participant App as RiotSwitcher (installed)
-  participant R2 as R2 bucket
-  App->>R2: GET latest.yml?noCache=...
-  R2-->>App: version, Setup exe, sha512, size
+  participant GH as GitHub Release
+  App->>GH: GET releases/latest/download/latest.yml
+  GH-->>App: version, Setup exe, sha512, size
   alt newer version
-    App->>R2: GET RiotSwitcher-Setup-X.Y.Z.exe
-    R2-->>App: installer (sha512 checked by electron-updater)
+    App->>GH: GET RiotSwitcher-Setup-X.Y.Z.exe
+    GH-->>App: installer (sha512 checked by electron-updater)
     App->>App: quitAndInstall(true, true)
   else same or older
     App->>App: update-not-available, nothing happens
@@ -191,12 +159,12 @@ exe instead:
 ```mermaid
 sequenceDiagram
   participant P as Portable app (running from %TEMP%)
-  participant R2 as R2 bucket
+  participant GH as GitHub Release
   participant CMD as update script
-  P->>R2: GET latest.json?t=...
-  R2-->>P: version, portable URL, sha256, size
-  P->>R2: GET portable exe
-  R2-->>P: bytes (sha256 + size checked)
+  P->>GH: GET releases/latest/download/latest.json
+  GH-->>P: version, portable URL, sha256, size
+  P->>GH: GET RiotSwitcher-X.Y.Z-portable.exe
+  GH-->>P: bytes (sha256 + size checked)
   P->>P: copy next to the exe as *.exe.new, write *.exe.update.cmd
   P->>CMD: spawn detached
   P->>P: app.quit()
@@ -227,70 +195,54 @@ The renderer is unchanged: both updaters emit `update:status` with
 
 ## 6. Verifying an update for real
 
-1. Publish `3.1.11` (first build that contains the portable updater).
-2. Publish `3.1.12`.
+1. Publish `3.1.24`.
+2. Publish `3.1.25`.
 3. Close the installed app so it does not hold the single-instance lock.
-4. Run `release\RiotSwitcher-3.1.11-portable.exe`.
+4. Run `release\RiotSwitcher-3.1.24-portable.exe`.
 5. Within ~5 s it reports the update, downloads it, and restarts itself.
 
 Proof is the version shown in the app and in
 `%APPDATA%\RiotSwitcher\logs\main.log`:
 
 ```
-Portable update feed: https://pub-…r2.dev
+Portable update feed: https://github.com/yassine808/RiotSwitcher/releases/latest/download
 ```
 
 then, after the restart, a `.old` file removed next to the exe and the app
-reporting `3.1.12`.
+reporting `3.1.25`. The installed build logs
+`Update feed: https://github.com/yassine808/RiotSwitcher/releases/latest/download`
+and restarts into the new installer the same way.
 
 ## 7. Withdrawing a bad release
 
-This needs the target version's binaries to still be in the bucket, and by
-default the three newest versions stay. To reach further back, widen the window
-first with `R2_KEEP_VERSIONS=5` (or `--keep 5`) and keep it there for the
-releases you may want to undo. Repointing the manifests at the previous version
-then stops anyone new from installing the bad one — no rebuild, no re-upload.
+The target release must still exist and be public. `withdraw.yml` does not
+rebuild anything: it moves GitHub's **Latest** pointer back, and
+`releases/latest/download` immediately serves that release's manifests and
+binaries again.
 
 ### From the Actions tab
 
-**Actions → Withdraw → Run workflow**, with the version to fall back to. It runs
-`.github/workflows/withdraw.yml`, which:
+**Actions → Withdraw → Run workflow**, with the version to fall back to. It:
 
-1. checks the input is `X.Y.Z`, both binaries are still in the feed, and the
-   target really is **older** than what the feed serves now;
-2. pulls that version's `latest.yml` and `latest.json` from its GitHub release
-   (regenerating `latest.json` from the bucket if the release predates it);
-3. overwrites the two manifests in the bucket with `no-cache`;
-4. re-reads the feed and fails unless it now reports the older version.
+1. checks the input is `X.Y.Z`, the release is public and carries both
+   manifests and both binaries, and the target really is **older** than the
+   current latest release;
+2. runs `gh release edit vX.Y.Z --latest`;
+3. re-reads `releases/latest/download/latest.json` and `latest.yml` and fails
+   unless they now report the older version.
 
 `dry_run` defaults to **true**: the first run only prints the checks it would
-perform. Clear it to actually write.
+perform. Clear it to actually move the pointer.
 
 The workflow shares the `release-feed` concurrency group with `release.yml`, so
-a withdrawal and a publish can never interleave on the manifests.
+a withdrawal and a publish can never interleave on the pointer.
 
 ### By hand
 
 ```powershell
-$v = "3.1.11"   # the version to go back to; it must still be in the bucket
-
-# Both manifests are kept as assets of their GitHub release.
-gh release download "v$v" -p latest.yml -O release/latest.yml
-gh release download "v$v" -p latest.json -O release/latest.json
-
-# Releases published before latest.json was stored there: rebuild it instead.
-if (-not (Test-Path "release\latest.json")) {
-  Invoke-WebRequest "https://pub-6d3d6d22222242dab87967c474f39ada.r2.dev/RiotSwitcher-$v-portable.exe" `
-    -OutFile "release\RiotSwitcher-$v-portable.exe"
-  node scripts/make-update-manifest.mjs --version $v
-}
-
-wrangler r2 object put "riotswitcher-updates/latest.yml"  --file release/latest.yml  --remote --content-type text/yaml --cache-control "no-cache"
-wrangler r2 object put "riotswitcher-updates/latest.json" --file release/latest.json --remote --content-type application/json --cache-control "no-cache"
+gh release edit v3.1.23 --latest
+npm run verify:feed -- --version 3.1.23
 ```
-
-The binaries are already in the bucket under their versioned names, so the two
-manifests are the only objects that change.
 
 **This does not downgrade anyone.** Both updaters only move forward: a client
 already on the bad version sees the older manifest as not newer and stays put.
@@ -298,19 +250,51 @@ Withdrawal limits the blast radius — new installs and clients that have not
 checked yet land on the last good version. Repairing the clients already on the
 bad one still needs a higher version number published normally.
 
-## 8. Rules
+## 8. Migrating installs from the old R2 feed (one time)
 
-- The updater modules are pinned (`scripts/check-updater-lock.mjs`): changing
+Builds up to `3.1.23` were published while the repository was private, so they
+read the old Cloudflare R2 bucket. They cannot see GitHub on their own. To move
+them:
+
+1. Publish the first GitHub release (`3.1.24` or later) normally.
+2. Put that release's two manifests into the old bucket, with the installer
+   and portable URLs pointing at **GitHub**. `latest.json` already contains an
+   absolute GitHub URL; `latest.yml` needs its relative names made absolute:
+
+   ```powershell
+   $v = "3.1.24"
+   $tag = "v$v"
+   $base = "https://github.com/yassine808/RiotSwitcher/releases/download/$tag"
+   gh release download $tag -p latest.yml -p latest.json -D release/legacy
+   node -e "const fs=require('fs');const base=process.argv[1];let y=fs.readFileSync('release/legacy/latest.yml','utf8');y=y.replace(/(\s-\surl:\s*)(\S+)/g,(m,p,u)=>p+base+'/'+u).replace(/^path:\s*(\S+)/m,(m,p)=>'path: '+base+'/'+p);fs.writeFileSync('release/legacy/latest.yml',y);" $base
+   ```
+
+3. Upload only those two manifests to the old bucket, with `no-cache`:
+
+   ```powershell
+   wrangler r2 object put "riotswitcher-updates/latest.yml"  --file release/legacy/latest.yml  --remote --content-type text/yaml --cache-control "no-cache"
+   wrangler r2 object put "riotswitcher-updates/latest.json" --file release/legacy/latest.json --remote --content-type application/json --cache-control "no-cache"
+   ```
+
+Old clients read the R2 manifests, see the new version, download the installer
+or portable **from GitHub**, and from that version on they read GitHub directly.
+After this one-time bridge, R2 is no longer part of the update path and the
+Cloudflare credentials can be removed from the repository secrets.
+
+## 9. Rules
+
+- The updater modules are pinned (`scripts/updater.lock.json`): changing
   `updater.ts`, `updateFeed.ts` or `portableUpdate.ts` fails CI until the lock
   is re-pinned in the same commit.
-- Never upload a manifest before its binary.
+- `npm run check:updater` (`scripts/check-updater.mjs`) is the full gate: lock,
+  GitHub feed URL, both electron-builder targets, every updater event, the IPC
+  routing, the release workflow, and a scan that no release path still talks to
+  Cloudflare. CI runs it on every change; the release runs it again.
+- Never publish a manifest before its binary. `release.yml` creates a draft,
+  uploads everything, then publishes.
 - `npm run verify:release` must pass before a release is published: it is the
   only check that looks at the packaged app and both manifests together.
-- The bucket carries the three newest versions. `scripts/prune-feed.mjs`
-  deletes every object older than the window after the new manifests are live,
-  never before; `R2_KEEP_VERSIONS` / `--keep N` change the window.
-- Binaries are published `immutable`, so a name must never change its bytes:
-  the portable downloads by name, and a changed file under an old name would
-  leave copies on different builds. Rebuild as a new version instead.
-- The feed must stay anonymous. Anything that puts auth in front of the bucket
-  breaks both updaters.
+- Binaries keep versioned names and never change their bytes. Rebuild as a new
+  version instead.
+- The feed must stay anonymous. Making the repository private again breaks both
+  updaters, because neither ships a GitHub token.

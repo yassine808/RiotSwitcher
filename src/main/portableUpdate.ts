@@ -130,10 +130,15 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/** The portable manifest, read from the newest published GitHub release. */
+export function manifestUrl(): string {
+  return `${UPDATE_FEED_URL}/latest.json`;
+}
+
 async function fetchFeed(): Promise<Feed> {
   // The manifest must never be served from a cache: a stale copy would hide a
-  // release, and a fresh one would announce a file the CDN has not got yet.
-  const response = await net.fetch(`${UPDATE_FEED_URL}/latest.json?t=${Date.now()}`, {
+  // release, and a fresh one would announce a file GitHub has not got yet.
+  const response = await net.fetch(`${manifestUrl()}?t=${Date.now()}`, {
     cache: "no-store",
   });
   if (!response.ok) {

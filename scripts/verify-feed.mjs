@@ -1,49 +1,31 @@
 #!/usr/bin/env node
 /**
- * Checks the live feed after a publish: everything a client will actually
- * read, from the public URL, not from the files on disk.
+ * Checks the live GitHub release feed after a publish, from the public URL the
+ * way both updaters read it.
  *
  * `verify-release.mjs` runs before anything is uploaded and proves the release
- * is consistent. This runs after the upload and proves the upload worked: the
- * manifests that came out the other end name this version, the binaries behind
- * them answer 200 with the declared size, the cache headers are the ones a
- * client needs, and no version outside the retention window is still there.
+ * is consistent. This runs after the release is public and proves the upload
+ * worked: both manifests resolve from `releases/latest/download`, name this
+ * version, and the binaries behind them answer 200 with the declared size.
  * With `--download` it also fetches the portable once and hashes it, which is
  * the only check that covers the bytes a client actually installs.
  *
- * A stale edge copy is retried for a while before it counts as a failure: a
- * manifest uploaded seconds ago can still be behind a cached copy.
+ * A stale redirect is retried for a while before it counts as a failure: the
+ * latest pointer and the asset CDN do not always update in the same second.
  *
- *   node scripts/verify-feed.mjs                  # package.json version, keep 3
+ *   node scripts/verify-feed.mjs                  # package.json version
  *   node scripts/verify-feed.mjs --version 3.1.12 # check the version on the feed
- *   node scripts/verify-feed.mjs --keep 5         # expect five versions up there
  *   node scripts/verify-feed.mjs --timeout 30     # give up sooner on propagation
  *   node scripts/verify-feed.mjs --download       # also hash the portable itself
- *
- * The bucket is listed through the R2 API when CLOUDFLARE_API_TOKEN and
- * CLOUDFLARE_ACCOUNT_ID are set (every CI run). Without them, versions known
- * from tags and release/ are probed instead.
  */
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  MANIFEST_KEYS,
-  bucketCredentials,
-  compareVersions,
-  feedBase,
-  listBucket,
-  objectNames,
-  versionOfKey,
-} from "./lib/feed.mjs";
-
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SCRIPT_DIR, "..");
-const RELEASE_DIR = join(ROOT, "release");
 
 const problems = [];
 const passed = [];
@@ -66,34 +48,42 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** The feed base, read from the source of truth the app ships. */
+function feedBase() {
+  const source = readFileSync(join(ROOT, "src", "main", "updateFeed.ts"), "utf8");
+  const match = source.match(/DEFAULT_FEED_URL\s*=\s*"([^"]+)"/);
+  if (!match) {
+    console.error("[verify-feed] cannot read DEFAULT_FEED_URL from src/main/updateFeed.ts");
+    process.exit(1);
+  }
+  return match[1].replace(/\/+$/, "");
+}
+
 const current = argvValue("--version", JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version);
-const keepCount = Number(argvValue("--keep", process.env.R2_KEEP_VERSIONS ?? "3"));
 const timeoutMs = Number(argvValue("--timeout", "60")) * 1000;
-if (!Number.isInteger(keepCount) || keepCount < 1) {
-  console.error(`[verify-feed] invalid keep count: ${keepCount}`);
+if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+  console.error(`[verify-feed] invalid timeout: ${timeoutMs}`);
   process.exit(1);
 }
 
-const base = feedBase(ROOT);
+const base = feedBase();
 
 /**
- * Fetches a manifest until it reports the expected version.
+ * Fetches an asset until its body satisfies `isCurrent`.
  *
- * The previous release's copy can still be cached when this runs. Retrying is
- * not leniency: it separates "the edge has not caught up" from "the upload
- * never happened", and the second one has to fail the run.
+ * The previous release can still be behind the redirect when this runs.
+ * Retrying is not leniency: it separates "GitHub has not switched yet" from
+ * "the upload never happened", and the second one has to fail the run.
  */
-async function readManifest(name, isCurrent) {
+async function readAsset(name, isCurrent) {
   const deadline = Date.now() + timeoutMs;
   let lastSaid = "no response";
 
   for (let attempt = 1; ; attempt += 1) {
-    // The first request is exactly what a client sends. A cache-busting query
-    // is only added on retries, so a stale edge copy is still detectable.
-    const url = attempt === 1 ? `${base}/${name}` : `${base}/${name}?t=${Date.now()}`;
+    const url = `${base}/${name}?t=${Date.now()}`;
     let response;
     try {
-      response = await fetch(url, { headers: { "cache-control": "no-cache" } });
+      response = await fetch(url, { headers: { "cache-control": "no-cache" }, redirect: "follow" });
     } catch (error) {
       lastSaid = error.message;
       if (Date.now() >= deadline) throw new Error(`${name}: ${lastSaid}`);
@@ -110,11 +100,7 @@ async function readManifest(name, isCurrent) {
 
     const text = await response.text();
     if (isCurrent(text)) {
-      return {
-        text,
-        cacheControl: response.headers.get("cache-control") ?? "(none)",
-        attempts: attempt,
-      };
+      return { text, attempts: attempt };
     }
 
     lastSaid = "still not this version";
@@ -143,36 +129,23 @@ function versionOfYml(text) {
 
 async function head(url) {
   try {
-    const response = await fetch(url, { method: "HEAD" });
+    const response = await fetch(url, { method: "HEAD", redirect: "follow" });
     return { status: response.status, headers: response.headers };
   } catch (error) {
     return { status: 0, headers: new Headers(), error: error.message };
   }
 }
 
-function isNoCache(value) {
-  return /(^|,)\s*no-cache\s*(,|$)/i.test(value) || /no-store/i.test(value);
-}
-
-function isImmutable(value) {
-  return /immutable/i.test(value);
-}
-
 // 1. latest.json: the manifest the portable build reads.
 let portable = null;
 try {
-  const manifest = await readManifest("latest.json", (text) => {
+  const manifest = await readAsset("latest.json", (text) => {
     try {
       return JSON.parse(text).version === current;
     } catch {
       return false;
     }
   });
-  check(
-    isNoCache(manifest.cacheControl),
-    `latest.json is served with cache-control "${manifest.cacheControl}", so a client can hold a stale copy`,
-    `latest.json is revalidated (${manifest.cacheControl})`,
-  );
   if (manifest.attempts > 1) {
     passed.push(`latest.json took ${manifest.attempts} attempts to show ${current}`);
   }
@@ -185,6 +158,11 @@ try {
       portable.url.endsWith(`RiotSwitcher-${current}-portable.exe`),
       `latest.json points at ${portable.url}, not the ${current} portable build`,
     );
+    check(
+      /^[a-f0-9]{64}$/i.test(portable.sha256 ?? ""),
+      "latest.json has no portable sha256",
+      "latest.json carries the portable sha256",
+    );
   }
 } catch (error) {
   problems.push(`latest.json: ${error.message}`);
@@ -194,12 +172,10 @@ try {
 let ymlText = null;
 let yml = null;
 try {
-  const manifest = await readManifest("latest.yml", (text) => versionOfYml(text) === current);
-  check(
-    isNoCache(manifest.cacheControl),
-    `latest.yml is served with cache-control "${manifest.cacheControl}", so a client can hold a stale copy`,
-    `latest.yml is revalidated (${manifest.cacheControl})`,
-  );
+  const manifest = await readAsset("latest.yml", (text) => versionOfYml(text) === current);
+  if (manifest.attempts > 1) {
+    passed.push(`latest.yml took ${manifest.attempts} attempts to show ${current}`);
+  }
 
   ymlText = manifest.text;
   const entries = parseLatestYml(ymlText);
@@ -229,24 +205,18 @@ for (const binary of binaries) {
     continue;
   }
   const length = Number(response.headers.get("content-length") ?? -1);
-  const cacheControl = response.headers.get("cache-control") ?? "(none)";
   check(binary.size === length, `${binary.name} is ${length} B on the feed, its manifest says ${binary.size} B`);
-  check(
-    isImmutable(cacheControl),
-    `${binary.name} is served with cache-control "${cacheControl}", so every client re-downloads it`,
-    `${binary.name} is immutable (${length} B)`,
-  );
+  passed.push(`${binary.name} is public (${length} B)`);
 }
 
 // 3b. The bytes behind the portable URL hash to what the manifest says. Every
 // client refuses a mismatch only after downloading the whole file, so a corrupt
 // object would break updates for everyone while every HEAD check still passed.
-// `--download` (or VERIFY_DOWNLOAD=1) pays that one download.
 const wantsDownload = process.argv.includes("--download") || process.env.VERIFY_DOWNLOAD === "1";
 if (wantsDownload && portable?.url && portable.sha256) {
   try {
     const hash = createHash("sha256");
-    const response = await fetch(portable.url, { headers: { "cache-control": "no-cache" } });
+    const response = await fetch(portable.url, { headers: { "cache-control": "no-cache" }, redirect: "follow" });
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
     let bytes = 0;
     for await (const chunk of response.body) {
@@ -272,72 +242,6 @@ if (ymlText && portable) {
     `latest.yml declares ${versionOfYml(ymlText)}, latest.json declares ${current}`,
     `both manifests declare ${current}`,
   );
-}
-
-// 5. Nothing outside the retention window is still being served.
-const credentials = bucketCredentials();
-
-function gitTaggedVersions() {
-  try {
-    return execFileSync("git", ["tag", "--list", "v*"], { cwd: ROOT, encoding: "utf8" })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => /^v\d+\.\d+\.\d+$/.test(line))
-      .map((line) => line.slice(1));
-  } catch {
-    return [];
-  }
-}
-
-function releasedVersions() {
-  try {
-    return readdirSync(RELEASE_DIR).flatMap((name) => name.match(/\d+\.\d+\.\d+/) ?? []);
-  } catch {
-    return [];
-  }
-}
-
-const known = new Set([current, ...gitTaggedVersions(), ...releasedVersions()]);
-const ordered = [...known].sort(compareVersions);
-const kept = new Set(ordered.slice(-keepCount));
-kept.add(current);
-
-if (credentials) {
-  try {
-    const keys = await listBucket(credentials);
-    // The window is counted over the versions that are really in the bucket,
-    // not over the tags. A tag whose upload failed never produced an object,
-    // and counting it would report an eviction that did not happen.
-    const bucketVersions = [...new Set(keys.map(versionOfKey).filter(Boolean))].sort(compareVersions);
-    const windowVersions = bucketVersions.slice(-keepCount);
-    if (!windowVersions.includes(current)) windowVersions.push(current);
-    const windowNames = new Set(windowVersions.flatMap(objectNames));
-    const strays = keys.filter((key) => {
-      const version = versionOfKey(key);
-      return version !== null && !windowNames.has(key);
-    });
-    check(
-      strays.length === 0,
-      `${strays.length} object(s) outside the retention window are still in the bucket: ${strays.slice(0, 5).join(", ")}`,
-      `the bucket holds ${keys.length} object(s) for ${windowVersions.sort(compareVersions).join(", ")}`,
-    );
-    for (const key of objectNames(current)) {
-      check(keys.includes(key), `${key} is missing from the bucket`);
-    }
-    for (const key of MANIFEST_KEYS) {
-      check(keys.includes(key), `${key} is missing from the bucket`);
-    }
-  } catch (error) {
-    problems.push(`cannot list the bucket: ${error.message}`);
-  }
-} else {
-  passed.push("bucket not listed (no API token); probing the versions release/ knows instead");
-  for (const version of ordered.filter((candidate) => !kept.has(candidate))) {
-    for (const key of objectNames(version)) {
-      const response = await head(`${base}/${key}`);
-      check(response.status === 404, `${key} is still on the feed, outside the retention window`, `${key} is gone`);
-    }
-  }
 }
 
 if (problems.length > 0) {
