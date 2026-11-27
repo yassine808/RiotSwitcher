@@ -1,0 +1,41 @@
+name: SonarQube
+
+# One of the three standing checks (with Updater and Site). SonarCloud's
+# automatic analysis is off for this project: this workflow is the only writer,
+# so a scan that does not run is visible as a missing check instead of being
+# silently replaced by the GitHub app.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sonar:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scanner can blame lines and compute new code.
+          fetch-depth: 0
+      - name: Scan
+        uses: SonarSource/sonarqube-scan-action@v8.5.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+      - name: Quality gate
+        # A scan alone only uploads facts. This step fails the check when the
+        # gate on the new code is red, which is what makes it a gate.
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
+        timeout-minutes: 10
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

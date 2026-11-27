@@ -1,0 +1,50 @@
+name: Updater
+
+# One of the three standing checks (with SonarQube and Site). The updater ships
+# inside every installed copy and cannot be fixed remotely once it is broken,
+# so it is checked on every push: the lock, the GitHub feed, both electron
+# targets, every update event, the IPC routing, the release workflow, and the
+# built main bundle.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: updater-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  updater:
+    name: Updater gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # Full install: the last step builds the main bundle, and electron-vite
+      # needs the dev dependencies to produce it.
+      - run: npm ci
+      - name: Static updater gate
+        run: npm run check:updater
+      - name: Updater unit tests
+        # The installed path and the portable path, mocked at the Electron/net
+        # boundary: install-and-restart, failure message then exit, manifest
+        # URLs, checksum handling, swap script.
+        run: npx vitest run src/main/updater.test.ts src/main/portableUpdate.test.ts src/main/updateFeed.test.ts
+      - name: Build the main process
+        run: npm run build
+      - name: Verify the feed shipped in the bundle
+        # Proves out/main/index.js carries the public GitHub release URL and no
+        # retired R2 host, i.e. the packaged app cannot come from an older tree.
+        run: npm run check:updater -- --built

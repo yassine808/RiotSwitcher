@@ -43,6 +43,32 @@ python -m compileall -q src/backend tests
 Full pre-commit gate: `typecheck`, `lint`, `test`, `test:py`, `ruff`,
 `compileall`, `build`.
 
+## CI checks
+
+Three workflows run on their own:
+
+| Workflow | Runs on | What it proves |
+|---|---|---|
+| `sonar.yml` | push to main, manual | SonarCloud scan + quality gate |
+| `updater.yml` | push/PR to main, manual | updater lock, wiring, unit tests, built feed URL |
+| `site.yml` | push touching `Website/**` | Website deployed to Cloudflare Pages |
+
+`release.yml` and `withdraw.yml` are release tooling, not standing checks.
+`ci.yml` is the full manual gate (typecheck, lint, tests, pytest, build).
+
+## SonarQube
+
+Project `yassine808_assist`, organization `yassine808`. The CLI is installed and
+logged in; CI uses the `SONAR_TOKEN` secret. Automatic analysis is off, so
+`sonar.yml` is the only writer.
+
+```powershell
+sonar auth status
+sonar list issues -p yassine808_assist --branch main --format json
+sonar quality-gate status -p yassine808_assist
+sonar api get "/api/project_analyses/search?project=yassine808_assist&ps=3"
+```
+
 ## Conventions
 
 - Python must stay **3.9-compatible** (no `match`, no `X | Y` runtime types).
