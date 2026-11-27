@@ -29,6 +29,11 @@ env:
   NODE_VERSION: "24"
   # Keep in step with the PyInstaller used for local builds (6.16.0).
   PYINSTALLER_VERSION: "6.16.0"
+  # Certificate selection for scripts/package.mjs. Both stay empty until a
+  # certificate exists; docs/SIGNING.md covers the provider setup. Once one is
+  # set, verify-signatures.mjs makes an unsigned release a hard failure.
+  WINDOWS_CERT_SHA1: ${{ secrets.WINDOWS_CERT_SHA1 }}
+  WINDOWS_CERT_SUBJECT: ${{ secrets.WINDOWS_CERT_SUBJECT }}
 
 jobs:
   release:
@@ -102,14 +107,23 @@ jobs:
         # then packs out/ from this step; without it the asar has no entry file.
         run: npm run build
 
+      - name: Start the code-signing agent
+        # Provider-specific (Certum SimplySign, SSL.com eSigner, ...). Optional:
+        # the build also accepts a certificate already installed on the runner.
+        # The script reads its own credentials from secrets; see
+        # docs/SIGNING.md for what it has to do.
+        if: ${{ hashFiles('scripts/signing-agent.ps1') != '' }}
+        shell: pwsh
+        run: ./scripts/signing-agent.ps1
+
       - name: Package the app
         # Publish is handled by the next steps: electron-builder's own publisher
         # creates one release per target, which races and splits the assets
-        # across two drafts on the same tag.
-        run: npx electron-builder --win --publish never
+        # across two drafts on the same tag. scripts/package.mjs adds the
+        # certificate overrides; with none configured the build is unsigned.
+        run: node scripts/package.mjs --win --publish never
         env:
-          # No code-signing certificate is configured; make that explicit so
-          # electron-builder does not try to discover one on the runner.
+          # The certificate comes from the store, never from auto-discovery.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Add the stable Setup.exe download alias
@@ -129,6 +143,14 @@ jobs:
         # parser it does not ship. Built before the release is published so the
         # release keeps a copy: withdrawing it later needs both manifests.
         run: node scripts/make-update-manifest.mjs
+
+      - name: Verify the signatures
+        # A signing failure must stop the release, not publish an unsigned
+        # installer. REQUIRE_SIGNING turns on as soon as a certificate is
+        # configured; an unsigned build only warns.
+        env:
+          REQUIRE_SIGNING: ${{ secrets.WINDOWS_CERT_SHA1 != '' || secrets.WINDOWS_CERT_SUBJECT != '' }}
+        run: npm run verify:signatures
 
       - name: Verify the release before it is published
         # The last gate. Everything the feed will serve is checked here: the

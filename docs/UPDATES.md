@@ -312,8 +312,9 @@ This is a false positive on the unsigned binary, not a feed problem. The
 installed build is unaffected because `electron-updater` uses its own download
 folder and NSIS installer. For the portable, add an exclusion for
 `%APPDATA%\riotswitcher\updates` (or the folder the portable exe lives in) in
-the antivirus, then check for updates again. Code signing the portable is the
-permanent fix.
+the antivirus, then check for updates again. Signed builds are the permanent
+fix; see [SIGNING.md](SIGNING.md) for the certificate setup and the
+false-positive reports that go with it.
 
 ## 9. Rules
 

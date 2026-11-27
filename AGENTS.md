@@ -56,6 +56,15 @@ Three workflows run on their own:
 `release.yml` and `withdraw.yml` are release tooling, not standing checks.
 `ci.yml` is the full manual gate (typecheck, lint, tests, pytest, build).
 
+## Code signing
+
+Windows binaries are Authenticode-signed from a certificate in the Windows
+certificate store; the setup and provider comparison are in
+[docs/SIGNING.md](docs/SIGNING.md). `npm run verify:signatures` is the release
+gate: with `REQUIRE_SIGNING=1` an unsigned, invalid or untimestamped binary
+fails before publishing. Never commit a certificate, private key or its
+password; `build/signing/` is gitignored for local material only.
+
 ## SonarQube
 
 Project `yassine808_assist`, organization `yassine808`. The CLI is installed and
