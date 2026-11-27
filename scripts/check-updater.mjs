@@ -145,7 +145,8 @@ requirePattern(portable, /\$\{UPDATE_FEED_URL\}\/latest\.json/, "latest.json on 
 requirePattern(portable, /createHash\("sha256"\)/, "portable sha256 hashing");
 requirePattern(portable, /file\.sha256 && digest !== file\.sha256\.toLowerCase\(\)/, "portable checksum check");
 requirePattern(portable, /statSync\(target\)\.size !== file\.size/, "portable size check");
-requirePattern(portable, /spawn\("cmd\.exe"/, "detached swap script");
+requirePattern(portable, /const cmd = join\([^)]*"cmd\.exe"\)/, "absolute cmd.exe path");
+requirePattern(portable, /spawn\(cmd, \["\/d", "\/c", script\]/, "detached swap script");
 requirePattern(portable, /PORTABLE_EXECUTABLE_FILE/, "portable exe detection");
 requirePattern(portable, /app\.quit\(\)/, "exit before the swap");
 

@@ -129,9 +129,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      # Lifecycle scripts stay ON: this is the only job that proves Electron's
-      # postinstall actually fetched a runnable binary.
-      - run: npm ci
+      # Install scripts stay off; the verify step below calls require('electron'),
+      # which downloads the binary on demand and proves it is runnable.
+      - run: npm ci --ignore-scripts
       - name: Verify Electron binary was downloaded
         run: |
           node -e "

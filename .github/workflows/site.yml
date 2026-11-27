@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       # Same pin as release.yml, so CI and a local deploy use one wrangler.
-      - run: npm install -g wrangler@4
+      - run: npm install -g wrangler@4.158.0 --ignore-scripts
       # Run from inside Website and deploy ".": wrangler resolves functions/
       # relative to the working directory, and `pages deploy Website` from the
       # repo root silently drops the Functions bundle.

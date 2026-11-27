@@ -106,7 +106,7 @@ const handlers: Record<string, (p: Json) => any> = {
     running = name;
     emit("profile_switch_progress", { step: "launch", status: "done", message: "Launched" });
     // tell the website around the demo which card is live, so its background can follow
-    parent.postMessage({ rs: "card", src: profiles.find((p) => p.profile_name === name)?.valorant_data.player_card_bg }, "*");
+    parent.postMessage({ rs: "card", src: profiles.find((p) => p.profile_name === name)?.valorant_data.player_card_bg }, location.origin);
     emit("riot_client_status", {});
     return { ok: true };
   },
@@ -126,7 +126,7 @@ const handlers: Record<string, (p: Json) => any> = {
   onEvent: (cb: (d: { event: string; params: unknown }) => void) => { listeners.add(cb); return () => listeners.delete(cb); },
 };
 const listeners2 = new Set<(d: any) => void>();
-ready.then((c) => { ctx = c; profiles = SEEDS.map(build); });
+ready.then((c) => { ctx = c; profiles = SEEDS.map(build); }).catch(() => { /* the demo still works without the public API */ });
 
 // first click inside the demo lets the website start its ambient sound (browsers need a click)
-addEventListener("pointerdown", () => parent.postMessage({ rs: "interact" }, "*"), { once: true });
+addEventListener("pointerdown", () => parent.postMessage({ rs: "interact" }, location.origin), { once: true });

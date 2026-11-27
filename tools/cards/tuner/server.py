@@ -288,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
         if not cache:
             self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(payload)  # NOSONAR: local files, fixed image content types
+        self.wfile.write(payload)  # NOSONAR
 
     def send_json(self, data, status=200):
         self.send_bytes(json.dumps(data).encode("utf-8"),
@@ -391,7 +391,8 @@ def main():
         # endpoint to open here.
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()  # NOSONAR
     try:
-        server.serve_forever()
+        # Loopback-only tuner: there is no TLS endpoint to serve here.
+        server.serve_forever()  # NOSONAR
     except KeyboardInterrupt:
         pass
     finally:

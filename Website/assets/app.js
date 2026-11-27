@@ -25,7 +25,7 @@ const CONFIG = {
   } catch {
     try { const r = await fetch(CONFIG.feed + "/latest.yml"); set(parse(await r.text())); } catch { /* keep fallbacks */ }
   }
-})();
+})().catch(() => {});
 
 /* ---------- background: a slow, tilted wall of agent cards ---------- */
 (() => {
@@ -244,10 +244,10 @@ const Amb = (() => {
   }
   const pref = (() => { try { return localStorage.getItem(KEY); } catch { return null; } })();
   paint();
-  btn?.addEventListener("click", (e) => { e.stopPropagation(); set(!on); });
+  btn?.addEventListener("click", (e) => { e.stopPropagation(); void set(!on); });
   // Browsers block autoplay, so the sound starts with the first click or key press unless the visitor muted it.
   if (pref !== "off") {
-    const first = () => { removeEventListener("pointerdown", first); removeEventListener("keydown", first); removeEventListener("rs-interact", first); if (!on) set(true, false); };
+    const first = () => { removeEventListener("pointerdown", first); removeEventListener("keydown", first); removeEventListener("rs-interact", first); if (!on) void set(true, false); };
     addEventListener("pointerdown", first); addEventListener("keydown", first); addEventListener("rs-interact", first);
   }
   return { makeEngine, blip(f = 660) { if (!on || !ctx) return; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.value = f;
