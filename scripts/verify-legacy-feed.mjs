@@ -15,7 +15,6 @@
  *
  *   node scripts/verify-legacy-feed.mjs
  *   node scripts/verify-legacy-feed.mjs --download
- *   node scripts/verify-legacy-feed.mjs --legacy-base http://127.0.0.1:8080
  */
 
 import { createHash } from "node:crypto";
@@ -34,17 +33,6 @@ function check(condition, failure, success) {
   }
   problems.push(failure);
   return false;
-}
-
-function argvValue(flag, fallback) {
-  const index = process.argv.indexOf(flag);
-  return index !== -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
-}
-
-function withoutTrailingSlashes(url) {
-  let end = url.length;
-  while (end > 0 && url[end - 1] === "/") end -= 1;
-  return url.slice(0, end);
 }
 
 async function get(url) {
@@ -94,7 +82,7 @@ async function assetSize(url) {
 
   const ranged = await fetch(url, { headers: { range: "bytes=0-0" }, redirect: "follow" });
   const contentRange = ranged.headers.get("content-range");
-  if (contentRange && contentRange.includes("/")) {
+  if (contentRange?.includes("/")) {
     return Number(contentRange.slice(contentRange.lastIndexOf("/") + 1));
   }
   return null;
@@ -107,7 +95,7 @@ async function downloadHash(url, algorithm) {
   return hash.digest("hex");
 }
 
-const legacyBase = withoutTrailingSlashes(argvValue("--legacy-base", DEFAULT_LEGACY_BASE));
+const legacyBase = DEFAULT_LEGACY_BASE;
 const download = process.argv.includes("--download");
 
 console.log(`[verify-legacy] legacy feed: ${legacyBase}`);
