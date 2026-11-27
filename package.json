@@ -33,6 +33,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"*.{json,mjs,ts}\" \".github/**/*.{yml,yaml}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"*.{json,mjs,ts}\" \".github/**/*.{yml,yaml}\"",
     "test": "vitest run",
+    "test:updater": "vitest run src/main/updater.test.ts src/main/portableUpdate.test.ts src/main/updateFeed.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:py": "python -m pytest tests/",

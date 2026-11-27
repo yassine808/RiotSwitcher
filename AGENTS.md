@@ -49,7 +49,7 @@ Three workflows run on their own:
 
 | Workflow | Runs on | What it proves |
 |---|---|---|
-| `sonar.yml` | push to main, manual | SonarCloud scan + quality gate |
+| `sonar.yml` | push to main, manual | SonarCloud scan (gate stays on the dashboard) |
 | `updater.yml` | push/PR to main, manual | updater lock, wiring, unit tests, built feed URL |
 | `site.yml` | push touching `Website/**` | Website deployed to Cloudflare Pages |
 

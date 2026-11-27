@@ -102,7 +102,7 @@ jobs:
       - name: Static updater gate
         run: npm run check:updater
       - name: Updater unit tests
-        run: npx vitest run src/main/updater.test.ts src/main/portableUpdate.test.ts src/main/updateFeed.test.ts
+        run: npm run test:updater
 
   api-leak:
     name: API Key Leak Check
