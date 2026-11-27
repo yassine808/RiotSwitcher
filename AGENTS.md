@@ -108,6 +108,16 @@ sonar api get "/api/project_analyses/search?project=yassine808_assist&ps=3"
 - League settings sync (`league_settings_sync.py`) is the only module allowed
   to touch League config, and only when `SyncGameSettings` is on (default off).
 
+## Versioning
+
+- A version is `MAJOR.MINOR.PATCH` and **every part is a single digit (0–9)**.
+  Never `3.1.10` or `3.1.24`: after `3.1.9` comes `3.2.0`, after `3.9.x` comes
+  `4.0.0`.
+- Releases already published keep the names they shipped with; the rule applies
+  from the next release on, never retroactively.
+- `package.json` is the source of truth; the tag is `v<version>`, and
+  `verify-release.mjs` refuses a tag that disagrees with it.
+
 ## Updates (mandatory)
 
 - **An update failure is never silent.** When a check, download, hash check or
