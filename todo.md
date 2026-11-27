@@ -10,3 +10,5 @@
 - [ ] Move the update feed off the `r2.dev` URL to a custom domain on the bucket. Cloudflare rate-limits `r2.dev` and says not to use it in production. Keep `r2.dev` enabled afterwards: builds up to 3.1.x have it compiled in.
 - [ ] The bucket is public by design (an installed copy has no credentials). Nothing secret is in it; do not put one there.
 - [ ] add arguments for the riotswitcher.exe so that shortcut do the account switch, then exit
+- [ ] when launching valorant, dont spam launch cause it makes riot not downoad update, and gets stuck in a loop
+- [ ] add a timer (manual entered) if the user was banned in account 
