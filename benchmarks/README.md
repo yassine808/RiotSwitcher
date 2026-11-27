@@ -81,15 +81,15 @@ Summary: `results/summary.csv`.
 
 ### The app, before and after the render-loop change
 
-| Metric | 3.1.24 baseline | optimized | Change |
-| --- | --- | --- | --- |
-| CPU, % of all 12 threads | 14.86 | 9.07 | **−39%** |
-| GPU engine, % summed | 29.13 | 24.34 | **−16%** |
-| Working set, MB | 525.0 | 494.2 | **−31 MB** |
-| Private bytes, MB | 488.3 | 489.6 | +1 MB (flat) |
-| Dedicated GPU memory, MB | 183.2 | 200.9 | +18 MB |
-| Warm startup, ms | 392 | 314 | −78 ms |
-| First launch, ms | 1 978 | 7 264 | not comparable |
+| Metric                   | 3.1.24 baseline | optimized | Change         |
+| ------------------------ | --------------- | --------- | -------------- |
+| CPU, % of all 12 threads | 14.86           | 9.07      | **−39%**       |
+| GPU engine, % summed     | 29.13           | 24.34     | **−16%**       |
+| Working set, MB          | 525.0           | 494.2     | **−31 MB**     |
+| Private bytes, MB        | 488.3           | 489.6     | +1 MB (flat)   |
+| Dedicated GPU memory, MB | 183.2           | 200.9     | +18 MB         |
+| Warm startup, ms         | 392             | 314       | −78 ms         |
+| First launch, ms         | 1 978           | 7 264     | not comparable |
 
 The change bakes each beam's gradient and 18 px blur into one offscreen sprite
 and redraws at 30 Hz instead of 60 Hz. CPU and GPU load drop because Chromium
@@ -104,14 +104,14 @@ close to build-to-build variance and is not claimed as an effect of the change.
 
 ### Language and shell baselines
 
-| Label | Warm startup, ms | Working set, MB | Private, MB | CPU % | GPU mem, MB | Processes |
-| --- | --- | --- | --- | --- | --- | --- |
-| `tkinter-bare` | 210 | 25.4 | 10.6 | ~0 | 0 | 1 |
-| `egui-bare` | 34 | 64.3 | 63.1 | ~0 | 12.1 | 1 |
-| `electron-bare` | 159 | 287.1 | 140.9 | ~0 | 17.8 | 4 |
-| `tauri-bare` | 30 | 333.6 | 158.4 | ~0 | 26.0 | 7 |
-| `riotswitcher-3.1.24-baseline` | 392 | 525.0 | 488.3 | 14.86 | 183.2 | 6 |
-| `riotswitcher-optimized` | 314 | 494.2 | 489.6 | 9.07 | 200.9 | 6 |
+| Label                          | Warm startup, ms | Working set, MB | Private, MB | CPU % | GPU mem, MB | Processes |
+| ------------------------------ | ---------------- | --------------- | ----------- | ----- | ----------- | --------- |
+| `tkinter-bare`                 | 210              | 25.4            | 10.6        | ~0    | 0           | 1         |
+| `egui-bare`                    | 34               | 64.3            | 63.1        | ~0    | 12.1        | 1         |
+| `electron-bare`                | 159              | 287.1           | 140.9       | ~0    | 17.8        | 4         |
+| `tauri-bare`                   | 30               | 333.6           | 158.4       | ~0    | 26.0        | 7         |
+| `riotswitcher-3.1.24-baseline` | 392              | 525.0           | 488.3       | 14.86 | 183.2       | 6         |
+| `riotswitcher-optimized`       | 314              | 494.2           | 489.6       | 9.07  | 200.9       | 6         |
 
 What the rows say:
 
@@ -131,4 +131,3 @@ Caveats: the display is a Parsec virtual adapter at 1280×1024 @ 60 Hz, so GPU
 numbers are relative, not absolute; the binaries are unsigned, so antivirus
 behaviour differs between machines; and two warm runs per label is enough to
 separate these gaps, not enough for small ones.
-
