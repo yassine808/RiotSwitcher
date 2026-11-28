@@ -1,24 +1,12 @@
 // @vitest-environment node
 // Main-process helper; see the note in shortcuts.test.ts.
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  ARM_TIMEOUT_MS,
-  closeAfterLaunchEnabled,
-  createCloseAfterLaunch,
-  isCompletedLaunch,
-} from "./launchClose";
+import { ARM_TIMEOUT_MS, closeAfterLaunchEnabled, createCloseAfterLaunch, isCompletedLaunch } from "./launchClose";
 
-function harness(visible = false) {
-  const hide = vi.fn();
+function harness() {
   const quit = vi.fn();
-  const state = { visible };
-  const close = createCloseAfterLaunch({
-    hide,
-    isVisible: () => state.visible,
-    quit,
-    timeoutMs: 1000,
-  });
-  return { close, hide, quit, state };
+  const close = createCloseAfterLaunch({ quit, timeoutMs: 1000 });
+  return { close, quit };
 }
 
 afterEach(() => {
@@ -45,36 +33,31 @@ describe("CloseAfterLaunch decisions", () => {
 });
 
 describe("closing after a launch", () => {
-  it("hides at once and quits only when the backend is done", () => {
-    const { close, hide, quit } = harness();
+  it("quits once the backend no longer needs the process", () => {
+    const { close, quit } = harness();
     close.reset();
     close.arm();
 
-    expect(hide).toHaveBeenCalledTimes(1);
+    // The product watchdog is still running: exiting now would cancel it.
     expect(quit).not.toHaveBeenCalled();
 
     close.launchArmed();
     expect(quit).toHaveBeenCalledTimes(1);
   });
 
-  it("does not hide a window when the launch was armed first", () => {
+  it("quits at once when the backend armed before the config read", () => {
     // A client-only launch arms before the config round trip that calls arm().
-    const { close, hide, quit } = harness();
+    const { close, quit } = harness();
     close.reset();
     close.launchArmed();
     close.arm();
 
-    expect(hide).not.toHaveBeenCalled();
     expect(quit).toHaveBeenCalledTimes(1);
   });
 
-  it("stays open when the user brings the window back", () => {
-    const { close, quit, state } = harness();
-    close.reset();
-    close.arm();
-    state.visible = true;
+  it("stays open when no launch succeeded", () => {
+    const { close, quit } = harness();
     close.launchArmed();
-
     expect(quit).not.toHaveBeenCalled();
   });
 
@@ -100,6 +83,16 @@ describe("closing after a launch", () => {
     vi.advanceTimersByTime(5000);
     close.launchArmed();
     expect(quit).not.toHaveBeenCalled();
+  });
+
+  it("never quits twice for one launch", () => {
+    const { close, quit } = harness();
+    close.reset();
+    close.arm();
+    close.launchArmed();
+    close.launchArmed();
+
+    expect(quit).toHaveBeenCalledTimes(1);
   });
 
   it("waits longer than the backend product watchdog", () => {

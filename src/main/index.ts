@@ -25,11 +25,9 @@ let appWindow: AppWindow | null = null;
 // the backend reports it is ready, then sent once.
 let pendingProfileLaunch = launchProfileFromArgv(process.argv);
 
-// CloseAfterLaunch: the window goes away as soon as the launch succeeds, and
-// the process exits when the backend's product watchdog no longer needs it.
+// CloseAfterLaunch: the app exits once the backend's product watchdog no longer
+// needs the process. It never hides to the tray; the switch means quit.
 const closeAfterLaunch = createCloseAfterLaunch({
-  hide: () => appWindow?.win.hide(),
-  isVisible: () => Boolean(appWindow?.win.isVisible()),
   // Deferred: the reply to `launch_profile` must reach the renderer before the
   // app starts tearing itself down.
   quit: () => setImmediate(() => app.quit()),
