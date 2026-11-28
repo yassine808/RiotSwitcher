@@ -25,6 +25,9 @@ release/
 # electron-vite writes a temp ESM config next to the original during build
 electron.vite.config.*.mjs
 
+# Local packaging benchmarks (unpacked builds and variants)
+benchmarks/
+
 # The shipped Agent Mastery cards, manifest and preview are tracked; the tuner's
 # generated working sources (_tuner) are not.
 tools/dotnet/
